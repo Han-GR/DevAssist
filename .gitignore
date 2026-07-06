@@ -1,0 +1,50 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+*.whl
+
+# === Environment ===
+.env
+.env.local
+.env.*.local
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# === Python Testing ===
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# === Next.js / Node ===
+node_modules/
+.next/
+out/
+
+# === Data (keep small samples, ignore large files) ===
+data/models/
+data/datasets/*.jsonl
+!data/datasets/*.sample.jsonl
+
+# === Docker ===
+*.log
+
+# === OS ===
+Thumbs.db
+
+# === Agents ===
+AGENTS.md
