@@ -1,15 +1,18 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
 import structlog
 from uuid import uuid4
 
 from app.core.config import get_settings, setup_logging
+from app.core.llm import LLMClient
 
 
 settings = get_settings()
 setup_logging(settings=settings)
 
 logger = structlog.get_logger()
+llm_client: LLMClient | None = None
 
 app = FastAPI(title=settings.service_name)
 
@@ -40,3 +43,31 @@ async def bind_request_id(request, call_next):
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+class ChatResponse(BaseModel):
+    reply: str
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(payload: ChatRequest) -> ChatResponse:
+    global llm_client
+
+    if llm_client is None:
+        try:
+            llm_client = LLMClient.from_settings(settings)
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    response = await llm_client.chat(
+        messages=[{"role": "user", "content": payload.message}],
+        temperature=0.0,
+        stream=False,
+    )
+
+    content = response.choices[0].message.content if response.choices else ""
+    return ChatResponse(reply=content or "")
