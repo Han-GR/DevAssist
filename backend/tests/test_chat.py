@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
+# tests/ 不在 python 包里，直接跑 pytest 时可能找不到 app/，这里把 backend/ 加进 import 路径
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
@@ -15,6 +16,7 @@ import app.main as main_module
 
 @dataclass
 class _FakeMessage:
+    # 模拟 OpenAI SDK 的 response.choices[0].message.content
     content: str
 
 
@@ -25,6 +27,7 @@ class _FakeChoice:
 
 @dataclass
 class _FakeResponse:
+    # LLMClient.chat
     choices: list[_FakeChoice]
 
 
@@ -32,6 +35,7 @@ class _FakeLLMClient:
     async def chat(
         self, *, messages: list[dict[str, Any]], temperature: float, stream: bool = False
     ) -> _FakeResponse:
+        # 单测里不走真实网络请求，直接把 user 输入 echo 回去
         user_text = messages[0]["content"] if messages else ""
         return _FakeResponse(choices=[_FakeChoice(message=_FakeMessage(content=f"echo: {user_text}"))])
 
@@ -80,6 +84,7 @@ def test_chat_configuration_error_is_unified_json(monkeypatch) -> None:
 
 
 def test_config_loading_from_env(monkeypatch) -> None:
+    # get_settings() 有 lru_cache，测试里得先清掉缓存，避免读到上一次的结果
     config_module.get_settings.cache_clear()
 
     monkeypatch.setenv("ENV", "test")
