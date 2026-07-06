@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
 
 import structlog
 from uuid import uuid4
 
 from app.core.config import get_settings, setup_logging
+from app.core.errors import ConfigurationError, register_error_handlers
 from app.core.llm import LLMClient
 
 
@@ -15,6 +16,7 @@ logger = structlog.get_logger()
 llm_client: LLMClient | None = None
 
 app = FastAPI(title=settings.service_name)
+register_error_handlers(app)
 
 
 @app.middleware("http")
@@ -61,7 +63,7 @@ async def chat(payload: ChatRequest) -> ChatResponse:
         try:
             llm_client = LLMClient.from_settings(settings)
         except ValueError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise ConfigurationError(message=str(exc)) from exc
 
     response = await llm_client.chat(
         messages=[{"role": "user", "content": payload.message}],
