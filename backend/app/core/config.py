@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     env: Literal["dev", "test", "prod"] = "dev"
     log_level: str = "INFO"
     service_name: str = "devassist-backend"
+    llm_provider: Literal["deepseek", "openai"] = "deepseek"
+    llm_api_key: str = ""
+    llm_model: str = "deepseek-chat"
+    llm_base_url: str = ""
 
     model_config = SettingsConfigDict(
         # 开发阶段优先图省事：本地可以放一个 .env；线上则直接走环境变量
