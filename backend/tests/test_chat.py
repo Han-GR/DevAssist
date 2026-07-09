@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.core import config as config_module
 import app.main as main_module
+import app.api.chat as chat_module
 
 
 @dataclass
@@ -105,7 +106,7 @@ def test_health_has_request_id() -> None:
 
 def test_chat_returns_reply() -> None:
     client = TestClient(main_module.app)
-    main_module.llm_client = _FakeLLMClient()
+    chat_module.llm_client = _FakeLLMClient()
 
     resp = client.post("/chat", json={"message": "hello"})
     assert resp.status_code == 200
@@ -117,7 +118,7 @@ def test_chat_returns_reply() -> None:
 def test_chat_passes_history_to_llm() -> None:
     client = TestClient(main_module.app)
     fake = _FakeLLMClient()
-    main_module.llm_client = fake
+    chat_module.llm_client = fake
 
     resp = client.post(
         "/chat",
@@ -145,7 +146,7 @@ def test_chat_passes_history_to_llm() -> None:
 def test_chat_streaming_returns_sse() -> None:
     client = TestClient(main_module.app)
     fake = _FakeLLMClient()
-    main_module.llm_client = fake
+    chat_module.llm_client = fake
 
     resp = client.post("/chat?stream=true", json={"message": "hello"})
     assert resp.status_code == 200
@@ -171,12 +172,12 @@ def test_chat_validation_error_is_unified_json() -> None:
 
 def test_chat_configuration_error_is_unified_json(monkeypatch) -> None:
     client = TestClient(main_module.app)
-    main_module.llm_client = None
+    chat_module.llm_client = None
 
     def _raise(*args, **kwargs):
         raise ValueError("LLM api_key is required")
 
-    monkeypatch.setattr(main_module.LLMClient, "from_settings", _raise)
+    monkeypatch.setattr(chat_module.LLMClient, "from_settings", _raise)
 
     resp = client.post("/chat", json={"message": "hi"})
     assert resp.status_code == 500
