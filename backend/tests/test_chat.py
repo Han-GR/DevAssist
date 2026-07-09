@@ -4,11 +4,13 @@ from dataclasses import dataclass
 from pathlib import Path
 import sys
 from typing import Any
+from uuid import UUID
 
 # tests/ 不在 python 包里，直接跑 pytest 时可能找不到 app/，这里把 backend/ 加进 import 路径
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app.core import config as config_module
 import app.main as main_module
@@ -51,6 +53,20 @@ class _FakeLLMClient:
                 break
 
         return _FakeResponse(choices=[_FakeChoice(message=_FakeMessage(content=f"echo: {user_text}"))])
+
+
+@pytest.fixture(autouse=True)
+def _stub_db(monkeypatch) -> None:
+    async def _empty_history(*args, **kwargs):
+        return []
+
+    async def _noop(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(chat_module, "load_history_from_db", _empty_history)
+    monkeypatch.setattr(chat_module, "persist_user_message_to_db", _noop)
+    monkeypatch.setattr(chat_module, "persist_assistant_message_to_db", _noop)
+    monkeypatch.setattr(chat_module, "persist_turn_to_db", _noop)
 
 
 @dataclass
@@ -123,7 +139,6 @@ def test_chat_passes_history_to_llm() -> None:
     resp = client.post(
         "/chat",
         json={
-            "conversation_id": "c1",
             "history": [
                 {"role": "user", "content": "hi"},
                 {"role": "assistant", "content": "hello"},
@@ -133,7 +148,8 @@ def test_chat_passes_history_to_llm() -> None:
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["conversation_id"] == "c1"
+    assert body.get("conversation_id")
+    UUID(body["conversation_id"])
     assert body["reply"] == "echo: how are you"
 
     assert fake.last_messages == [
@@ -141,6 +157,30 @@ def test_chat_passes_history_to_llm() -> None:
         {"role": "assistant", "content": "hello"},
         {"role": "user", "content": "how are you"},
     ]
+
+
+def test_chat_conversation_id_prefers_db_history() -> None:
+    client = TestClient(main_module.app)
+    fake = _FakeLLMClient()
+    chat_module.llm_client = fake
+
+    resp = client.post(
+        "/chat",
+        json={
+            "conversation_id": "00000000-0000-0000-0000-000000000001",
+            "history": [
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "hello"},
+            ],
+            "message": "how are you",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["conversation_id"] == "00000000-0000-0000-0000-000000000001"
+    assert body["reply"] == "echo: how are you"
+
+    assert fake.last_messages == [{"role": "user", "content": "how are you"}]
 
 
 def test_chat_streaming_returns_sse() -> None:
