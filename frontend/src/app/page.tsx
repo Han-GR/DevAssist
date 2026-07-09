@@ -1,4 +1,5 @@
 import { MessageBubble } from "@/components/chat/MessageBubble";
+import { StreamingDemo } from "@/components/chat/StreamingDemo";
 
 export default function Home() {
   return (
@@ -34,6 +35,13 @@ export default function Home() {
               "可以：这是一个示例链接 [FastAPI](https://fastapi.tiangolo.com/)。"
             }
           />
+        </div>
+
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold tracking-tight text-zinc-900">
+            流式演示
+          </h2>
+          <StreamingDemo apiUrl="http://localhost:8000" />
         </div>
       </main>
     </div>
