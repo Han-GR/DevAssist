@@ -32,12 +32,24 @@ class _FakeResponse:
 
 
 class _FakeLLMClient:
+    def __init__(self) -> None:
+        self.last_messages: list[dict[str, Any]] = []
+
     async def chat(
         self, *, messages: list[dict[str, Any]], temperature: float, stream: bool = False
     ) -> _FakeResponse:
-        # 单测里不走真实网络请求，直接把 user 输入 echo 回去
-        user_text = messages[0]["content"] if messages else ""
-        return _FakeResponse(choices=[_FakeChoice(message=_FakeMessage(content=f"echo: {user_text}"))])
+        self.last_messages = messages
+
+        # 单测里不走真实网络请求，直接把最后一条 user 输入 echo 回去
+        user_text = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                user_text = msg.get("content", "")
+                break
+
+        return _FakeResponse(
+            choices=[_FakeChoice(message=_FakeMessage(content=f"echo: {user_text}"))]
+        )
 
 
 def test_health_has_request_id() -> None:
@@ -54,7 +66,37 @@ def test_chat_returns_reply() -> None:
 
     resp = client.post("/chat", json={"message": "hello"})
     assert resp.status_code == 200
-    assert resp.json()["reply"] == "echo: hello"
+    body = resp.json()
+    assert body.get("conversation_id")
+    assert body["reply"] == "echo: hello"
+
+
+def test_chat_passes_history_to_llm() -> None:
+    client = TestClient(main_module.app)
+    fake = _FakeLLMClient()
+    main_module.llm_client = fake
+
+    resp = client.post(
+        "/chat",
+        json={
+            "conversation_id": "c1",
+            "history": [
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "hello"},
+            ],
+            "message": "how are you",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["conversation_id"] == "c1"
+    assert body["reply"] == "echo: how are you"
+
+    assert fake.last_messages == [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "user", "content": "how are you"},
+    ]
 
 
 def test_chat_validation_error_is_unified_json() -> None:
