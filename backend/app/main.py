@@ -5,9 +5,12 @@ import structlog
 from uuid import uuid4
 from typing import Literal
 
+from starlette.responses import StreamingResponse
+
 from app.core.config import get_settings, setup_logging
 from app.core.errors import ConfigurationError, register_error_handlers
 from app.core.llm import LLMClient
+from app.core.streaming import openai_chat_stream_to_sse
 
 
 settings = get_settings()
@@ -65,7 +68,7 @@ class ChatResponse(BaseModel):
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest) -> ChatResponse:
+async def chat(payload: ChatRequest, stream: bool = False) -> ChatResponse | StreamingResponse:
     global llm_client
 
     if llm_client is None:
@@ -80,6 +83,17 @@ async def chat(payload: ChatRequest) -> ChatResponse:
         {"role": m.role, "content": m.content} for m in payload.history
     ]
     messages.append({"role": "user", "content": payload.message})
+
+    if stream:
+        openai_stream = await llm_client.chat(
+            messages=messages,
+            temperature=0.0,
+            stream=True,
+        )
+        generator = openai_chat_stream_to_sse(
+            openai_stream, conversation_id=conversation_id
+        )
+        return StreamingResponse(generator, media_type="text/event-stream")
 
     response = await llm_client.chat(
         messages=messages,
