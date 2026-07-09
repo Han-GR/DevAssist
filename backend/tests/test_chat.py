@@ -37,19 +37,62 @@ class _FakeLLMClient:
 
     async def chat(
         self, *, messages: list[dict[str, Any]], temperature: float, stream: bool = False
-    ) -> _FakeResponse:
+    ) -> Any:
         self.last_messages = messages
 
-        # 单测里不走真实网络请求，直接把最后一条 user 输入 echo 回去
+        if stream:
+            return _FakeStream.from_messages(messages)
+
         user_text = ""
         for msg in reversed(messages):
             if msg.get("role") == "user":
                 user_text = msg.get("content", "")
                 break
 
-        return _FakeResponse(
-            choices=[_FakeChoice(message=_FakeMessage(content=f"echo: {user_text}"))]
-        )
+        return _FakeResponse(choices=[_FakeChoice(message=_FakeMessage(content=f"echo: {user_text}"))])
+
+
+@dataclass
+class _FakeDelta:
+    content: str | None = None
+
+
+@dataclass
+class _FakeChunkChoice:
+    delta: _FakeDelta
+
+
+@dataclass
+class _FakeChunk:
+    choices: list[_FakeChunkChoice]
+
+
+class _FakeStream:
+    def __init__(self, chunks: list[_FakeChunk]) -> None:
+        self._chunks = chunks
+
+    @classmethod
+    def from_messages(cls, messages: list[dict[str, Any]]) -> "_FakeStream":
+        user_text = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                user_text = msg.get("content", "")
+                break
+
+        chunks = [
+            _FakeChunk(choices=[_FakeChunkChoice(delta=_FakeDelta(content="echo: "))]),
+            _FakeChunk(choices=[_FakeChunkChoice(delta=_FakeDelta(content=user_text))]),
+            _FakeChunk(choices=[_FakeChunkChoice(delta=_FakeDelta(content=None))]),
+        ]
+        return cls(chunks)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> _FakeChunk:
+        if not self._chunks:
+            raise StopAsyncIteration
+        return self._chunks.pop(0)
 
 
 def test_health_has_request_id() -> None:
@@ -97,6 +140,23 @@ def test_chat_passes_history_to_llm() -> None:
         {"role": "assistant", "content": "hello"},
         {"role": "user", "content": "how are you"},
     ]
+
+
+def test_chat_streaming_returns_sse() -> None:
+    client = TestClient(main_module.app)
+    fake = _FakeLLMClient()
+    main_module.llm_client = fake
+
+    resp = client.post("/chat?stream=true", json={"message": "hello"})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    assert resp.headers.get("x-request-id")
+
+    body = resp.text
+    assert "data: " in body
+    assert "\"type\": \"meta\"" in body
+    assert "\"type\": \"delta\"" in body
+    assert "echo" in body
 
 
 def test_chat_validation_error_is_unified_json() -> None:
