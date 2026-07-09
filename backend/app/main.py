@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 import structlog
 from uuid import uuid4
+from typing import Literal
 
 from app.core.config import get_settings, setup_logging
 from app.core.errors import ConfigurationError, register_error_handlers
@@ -47,11 +48,19 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+class ChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
 class ChatRequest(BaseModel):
+    conversation_id: str | None = None
     message: str
+    history: list[ChatMessage] = []
 
 
 class ChatResponse(BaseModel):
+    conversation_id: str
     reply: str
 
 
@@ -65,11 +74,18 @@ async def chat(payload: ChatRequest) -> ChatResponse:
         except ValueError as exc:
             raise ConfigurationError(message=str(exc)) from exc
 
+    conversation_id = payload.conversation_id or str(uuid4())
+
+    messages: list[dict[str, str]] = [
+        {"role": m.role, "content": m.content} for m in payload.history
+    ]
+    messages.append({"role": "user", "content": payload.message})
+
     response = await llm_client.chat(
-        messages=[{"role": "user", "content": payload.message}],
+        messages=messages,
         temperature=0.0,
         stream=False,
     )
 
     content = response.choices[0].message.content if response.choices else ""
-    return ChatResponse(reply=content or "")
+    return ChatResponse(conversation_id=conversation_id, reply=content or "")
