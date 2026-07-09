@@ -1,3 +1,11 @@
+"""
+数据库模型定义（SQLAlchemy ORM）。
+
+目前只做聊天持久化的最小集合：
+- conversations：会话元信息
+- messages：会话中的消息（user/assistant/system）
+"""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -11,6 +19,13 @@ from app.db.base import Base
 
 
 class TimestampMixin:
+    """
+    通用时间戳字段。
+
+    统一用数据库时间（server_default=now）是为了避免应用服务器时钟偏差带来的混乱，
+    也方便后面做排序和回放。
+    """
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -25,6 +40,12 @@ class TimestampMixin:
 
 
 class Conversation(TimestampMixin, Base):
+    """
+    会话表：一段连续对话的“壳”。
+
+    目前先保留 user_id/title 这些字段，后续接入用户系统或做会话列表时会用到。
+    """
+
     __tablename__ = "conversations"
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -38,6 +59,12 @@ class Conversation(TimestampMixin, Base):
 
 
 class Message(TimestampMixin, Base):
+    """
+    消息表：会话里的每一条消息。
+
+    citations 预留给后续 RAG，用 JSONB 存来源信息，结构可以灵活演进。
+    """
+
     __tablename__ = "messages"
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
