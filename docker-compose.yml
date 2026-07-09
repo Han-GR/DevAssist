@@ -1,4 +1,13 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: devassist
+      POSTGRES_PASSWORD: devassist
+      POSTGRES_DB: devassist
+    ports:
+      - "5432:5432"
+
   backend:
     build:
       context: ./backend
@@ -6,6 +15,8 @@ services:
       - .env
     ports:
       - "8000:8000"
+    depends_on:
+      - db
 
   frontend:
     build:
