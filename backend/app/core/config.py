@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 import logging
@@ -36,7 +37,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         # 开发阶段优先图省事：本地可以放一个 .env；线上则直接走环境变量
-        env_file=".env",
+        env_file=str(Path(__file__).resolve().parents[3] / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
