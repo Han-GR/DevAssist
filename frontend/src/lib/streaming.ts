@@ -33,9 +33,7 @@ export async function* parseSseStream(
     if (options?.signal?.aborted) {
       try {
         await reader.cancel();
-      } catch {
-        null;
-      }
+      } catch {}
       return;
     }
 
@@ -104,6 +102,36 @@ function safeJsonParse(value: string): unknown {
   }
 }
 
+async function parseErrorMessage(resp: Response): Promise<string> {
+  const requestId = resp.headers.get("x-request-id");
+  const contentType = resp.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    try {
+      const body = (await resp.json()) as unknown;
+      if (body && typeof body === "object") {
+        const maybeError = (body as { error?: unknown }).error;
+        if (maybeError && typeof maybeError === "object") {
+          const message = (maybeError as { message?: unknown }).message;
+          if (typeof message === "string" && message.trim().length > 0) {
+            return requestId ? `${message} (request_id: ${requestId})` : message;
+          }
+        }
+
+        const message = (body as { message?: unknown }).message;
+        if (typeof message === "string" && message.trim().length > 0) {
+          return requestId ? `${message} (request_id: ${requestId})` : message;
+        }
+      }
+    } catch {}
+  }
+
+  const fallback = resp.statusText
+    ? `HTTP ${resp.status} ${resp.statusText}`
+    : `HTTP ${resp.status}`;
+  return requestId ? `${fallback} (request_id: ${requestId})` : fallback;
+}
+
 export async function* streamChat(options: {
   apiUrl: string;
   message: string;
@@ -126,7 +154,8 @@ export async function* streamChat(options: {
   });
 
   if (!resp.ok) {
-    yield { type: "error", message: `HTTP ${resp.status}` };
+    const message = await parseErrorMessage(resp);
+    yield { type: "error", message };
     return;
   }
 
@@ -174,4 +203,3 @@ export async function* streamChat(options: {
     }
   }
 }
-
