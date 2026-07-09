@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "deepseek-chat"
     llm_base_url: str = ""
+    database_url: str = "postgresql+asyncpg://devassist:devassist@db:5432/devassist"
 
     model_config = SettingsConfigDict(
         # 开发阶段优先图省事：本地可以放一个 .env；线上则直接走环境变量
