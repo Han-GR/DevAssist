@@ -8,9 +8,28 @@ import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-sys.path.insert(0, str(REPO_ROOT / "backend"))
+try:
+    from app.rag.ingestion import ingest_text_document
+except ModuleNotFoundError:
+    sys.path.insert(0, str(REPO_ROOT / "backend"))
+    from app.rag.ingestion import ingest_text_document
 
-from app.rag.ingestion import ingest_text_document
+
+def default_docs_dir() -> Path:
+    """
+    返回默认 docs 目录。
+
+    Returns:
+        Path: 默认文档目录路径。
+
+    Notes/Examples:
+        docker-compose 会把宿主机的 ./data 挂载到容器 /data，容器内默认用 /data/docs。
+        本地直接跑脚本时，则回退到仓库内的 data/docs。
+    """
+    docker_path = Path("/data/docs")
+    if docker_path.exists():
+        return docker_path
+    return REPO_ROOT / "data" / "docs"
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,8 +48,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--path",
         type=str,
-        default=str(REPO_ROOT / "data" / "docs"),
-        help="Docs directory (default: data/docs).",
+        default=str(default_docs_dir()),
+        help="Docs directory (default: /data/docs or data/docs).",
     )
     parser.add_argument(
         "--extensions",
@@ -120,7 +139,10 @@ async def run() -> int:
             failed += 1
             continue
 
-        source = str(p.relative_to(REPO_ROOT))
+        try:
+            source = str(p.relative_to(docs_dir))
+        except ValueError:
+            source = str(p)
         try:
             document_id, chunk_count, collection = await ingest_text_document(
                 title=p.name,
