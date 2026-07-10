@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "deepseek-chat"
     llm_base_url: str = ""
+    embedding_model: str = ""
+    embedding_api_key: str = ""
+    embedding_base_url: str = ""
     database_url: str = "postgresql+asyncpg://devassist:devassist@db:5432/devassist"
 
     model_config = SettingsConfigDict(
