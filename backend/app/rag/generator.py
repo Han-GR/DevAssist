@@ -89,6 +89,7 @@ async def generate_answer(
     top_k: int = 5,
     collection_name: str | None = None,
     candidate_multiplier: int = 4,
+    rerank_min_score: float = 0.0,
 ) -> RAGAnswer:
     """
     基于知识库生成带引用的回答（retrieve -> rerank -> prompt -> cite）。
@@ -98,6 +99,7 @@ async def generate_answer(
         top_k (int): 最终用于生成的引用 chunk 数量，默认 5。
         collection_name (str | None): 指定 collection；不传则使用 Settings 默认值。
         candidate_multiplier (int): rerank 前的候选扩展倍数，默认 4。
+        rerank_min_score (float): rerank 最小分数阈值，默认 0.0（等价于旧行为：只保留 score > 0）。
 
     Returns:
         RAGAnswer: 包含 answer 与 citations（source + snippet）。
@@ -129,7 +131,7 @@ async def generate_answer(
 
     candidate_k = max(top_k * candidate_multiplier, top_k)
     candidates = await hybrid_search(query=query, top_k=candidate_k, collection_name=collection_name)
-    picked = rerank(query=query, chunks=candidates, top_k=top_k)
+    picked = rerank(query=query, chunks=candidates, top_k=top_k, min_score=rerank_min_score)
     picked_by_id = {p.id: p for p in picked}
     final_chunks: list[HybridChunk] = [c for c in candidates if c.id in picked_by_id]
 
@@ -152,4 +154,3 @@ async def generate_answer(
     answer = response.choices[0].message.content if response.choices else ""
     citations = _extract_citations(chunks=final_chunks)
     return RAGAnswer(answer=answer or "", citations=citations)
-
