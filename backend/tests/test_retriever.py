@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from app.rag.retriever import RetrievedChunk, VectorRetriever
+from app.rag.retriever import HybridRetriever, KeywordRetriever, RetrievedChunk, VectorRetriever
 
 
 class _FakeEmbedder:
@@ -21,6 +21,7 @@ class _FakeEmbedder:
 @dataclass
 class _FakeCollection:
     last_query: dict[str, Any] | None = None
+    last_get: dict[str, Any] | None = None
 
     def query(self, **kwargs: Any) -> dict[str, Any]:
         self.last_query = kwargs
@@ -29,6 +30,14 @@ class _FakeCollection:
             "documents": [["doc-a", "doc-b"]],
             "metadatas": [[{"k": "v1"}, {"k": "v2"}]],
             "distances": [[0.01, 0.02]],
+        }
+
+    def get(self, **kwargs: Any) -> dict[str, Any]:
+        self.last_get = kwargs
+        return {
+            "ids": ["a", "c"],
+            "documents": ["python fastapi database", "totally unrelated"],
+            "metadatas": [{"source": "doc1"}, {"source": "doc2"}],
         }
 
 
@@ -66,3 +75,25 @@ def test_vector_retriever_validates_inputs() -> None:
         asyncio.run(r.search(query="  "))
     with pytest.raises(ValueError):
         asyncio.run(r.search(query="hi", top_k=0))
+
+
+def test_keyword_retriever_returns_bm25_hits() -> None:
+    mgr = _FakeChromaManager()
+    r = KeywordRetriever(chroma_manager=mgr, default_collection="devassist")
+    hits = r.search(query="fastapi", top_k=5)
+    assert hits
+    assert hits[0].id == "a"
+    assert hits[0].score > 0
+    assert mgr.collection.last_get
+
+
+def test_hybrid_retriever_merges_vector_and_keyword() -> None:
+    embedder = _FakeEmbedder()
+    mgr = _FakeChromaManager()
+    hybrid = HybridRetriever(
+        vector=VectorRetriever(embedder=embedder, chroma_manager=mgr, default_collection="devassist"),
+        keyword=KeywordRetriever(chroma_manager=mgr, default_collection="devassist"),
+    )
+    hits = asyncio.run(hybrid.search(query="fastapi", top_k=3))
+    ids = [h.id for h in hits]
+    assert "a" in ids
