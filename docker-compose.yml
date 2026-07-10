@@ -45,6 +45,8 @@ services:
       context: ./backend
     env_file:
       - ./backend/.env
+    volumes:
+      - ./data:/data
     ports:
       - "8000:8000"
     depends_on:
