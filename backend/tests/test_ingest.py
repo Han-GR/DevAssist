@@ -40,3 +40,17 @@ def test_ingest_stores_chunks_in_chroma(monkeypatch) -> None:
     assert body["filename"] == "doc.md"
     assert body["chunk_count"] == 2
     assert body["collection"] == "devassist"
+
+
+def test_ingest_accepts_code_files(monkeypatch) -> None:
+    async def _fake_ingest_text_document(**kwargs):
+        return UUID("00000000-0000-0000-0000-000000000001"), 1, "devassist"
+
+    monkeypatch.setattr(ingest_module, "ingest_text_document", _fake_ingest_text_document)
+
+    client = TestClient(main_module.app)
+    resp = client.post(
+        "/ingest",
+        files={"file": ("main.py", "print('hi')".encode("utf-8"), "text/plain")},
+    )
+    assert resp.status_code == 200
