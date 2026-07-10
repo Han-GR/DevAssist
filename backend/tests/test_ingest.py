@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import sys
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 
@@ -59,6 +60,10 @@ def test_ingest_stores_chunks_in_chroma(monkeypatch) -> None:
     fake_mgr = _FakeChromaManager()
     monkeypatch.setattr(ingest_module, "embedder", _FakeEmbedder())
     monkeypatch.setattr(ingest_module, "chroma_manager", fake_mgr)
+    async def _fake_persist_document_to_db(**kwargs):
+        return UUID("00000000-0000-0000-0000-000000000001")
+
+    monkeypatch.setattr(ingest_module, "persist_document_to_db", _fake_persist_document_to_db)
 
     client = TestClient(main_module.app)
     resp = client.post(
@@ -68,6 +73,7 @@ def test_ingest_stores_chunks_in_chroma(monkeypatch) -> None:
     assert resp.status_code == 200
 
     body = resp.json()
+    assert body["document_id"] == "00000000-0000-0000-0000-000000000001"
     assert body["filename"] == "doc.md"
     assert body["chunk_count"] >= 1
 
