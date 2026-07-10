@@ -39,6 +39,7 @@ out/
 data/models/
 data/datasets/*.jsonl
 !data/datasets/*.sample.jsonl
+data/eval_reports/*.json
 
 # === Docker ===
 *.log
