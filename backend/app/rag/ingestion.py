@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Literal
 from uuid import UUID, uuid4
 
 from app.core.config import Settings, get_settings
@@ -8,11 +10,53 @@ from app.db.models import Document
 from app.db.session import SessionLocal
 from app.rag.chroma import ChromaCollectionManager
 from app.rag.embedder import Embedder
-from app.rag.splitter import split_text_semantic
+from app.rag.splitter import split_text, split_text_semantic
 
 
 embedder: Embedder | None = None
 chroma_manager: ChromaCollectionManager | None = None
+
+
+def _infer_doc_kind(*, source: str) -> Literal["text", "code"]:
+    """
+    根据 source 推断文档类型。
+
+    Args:
+        source (str): 文档来源标识（通常是文件名或相对路径）。
+
+    Returns:
+        Literal["text", "code"]: "text" 表示自然语言/Markdown 文档，"code" 表示源码文件。
+
+    Notes/Examples:
+        当前 ingestion 只需要一个很粗的分流：代码文件优先使用定长切分，
+        否则语义切分在“无标点的长行代码”场景下容易产生超大 chunk。
+    """
+    suffix = Path(source).suffix.lower()
+    if suffix in {".py", ".js"}:
+        return "code"
+    return "text"
+
+
+def _split_text_for_source(*, text: str, source: str, chunk_size: int, overlap: int) -> list[str]:
+    """
+    按文档类型选择切分策略。
+
+    Args:
+        text (str): 原始文本。
+        source (str): 来源标识（用于推断类型）。
+        chunk_size (int): 目标 chunk 长度。
+        overlap (int): chunk 重叠长度。
+
+    Returns:
+        list[str]: 切分后的 chunk 列表。
+
+    Raises:
+        ValueError: 参数不合法时抛出（由 splitter 抛出）。
+    """
+    kind = _infer_doc_kind(source=source)
+    if kind == "code":
+        return split_text(text, chunk_size=chunk_size, overlap=overlap)
+    return split_text_semantic(text, chunk_size=chunk_size, overlap=overlap)
 
 
 def get_embedder(*, settings: Settings) -> Embedder:
@@ -136,7 +180,12 @@ async def ingest_text_document(
     settings = get_settings()
     collection = collection_name or settings.chroma_collection
 
-    chunks = split_text_semantic(text, chunk_size=chunk_size, overlap=overlap)
+    chunks = _split_text_for_source(
+        text=text,
+        source=source,
+        chunk_size=chunk_size,
+        overlap=overlap,
+    )
     if not chunks:
         raise AppError(
             code="empty_document",
