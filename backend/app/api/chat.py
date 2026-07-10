@@ -27,6 +27,7 @@ from app.core.llm import LLMClient
 from app.core.streaming import sse_event
 from app.db.models import Conversation, Message
 from app.db.session import SessionLocal
+import app.rag.generator as rag_generator
 
 
 settings = get_settings()
@@ -57,6 +58,8 @@ class ChatRequest(BaseModel):
     conversation_id: UUID | None = None
     message: str
     history: list[ChatMessage] = []
+    use_rag: bool | None = None
+    collection_name: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -68,6 +71,92 @@ class ChatResponse(BaseModel):
 
     conversation_id: UUID
     reply: str
+
+
+def _should_use_rag(*, message: str, force: bool | None) -> bool:
+    """
+    判断是否启用 RAG。
+
+    Args:
+        message (str): 用户输入。
+        force (bool | None): 显式开关；不为 None 时直接按该值执行。
+
+    Returns:
+        bool: True 表示走 RAG，False 表示走普通聊天。
+
+    Notes/Examples:
+        当前策略偏保守：默认只在“看起来像技术问答”时才启用 RAG，避免闲聊也去跑检索。
+    """
+    if force is not None:
+        return force
+
+    if not settings.embedding_model or not settings.embedding_api_key:
+        return False
+
+    text = message.strip()
+    if not text:
+        return False
+
+    lowered = text.lower()
+    if "?" in text or "？" in text:
+        return True
+
+    triggers = [
+        "怎么",
+        "如何",
+        "为什么",
+        "报错",
+        "错误",
+        "traceback",
+        "exception",
+        "fastapi",
+        "sqlalchemy",
+        "alembic",
+        "docker",
+        "postgres",
+        "chroma",
+        "embedding",
+    ]
+    return any(t in lowered for t in triggers)
+
+
+def _format_rag_reply(*, answer: rag_generator.RAGAnswer) -> str:
+    """
+    把 RAGAnswer 格式化为适合直接回传给前端的文本。
+
+    Args:
+        answer (RAGAnswer): RAG 生成结果（含 citations）。
+
+    Returns:
+        str: 拼接后的 Markdown 文本。
+    """
+    lines: list[str] = [answer.answer.strip()]
+    if answer.citations:
+        lines.append("")
+        lines.append("Sources:")
+        for i, c in enumerate(answer.citations, start=1):
+            suffix = f"#{c.chunk_index}" if c.chunk_index is not None else ""
+            src = f"{c.source}{suffix}".strip()
+            lines.append(f"{i}. {src}")
+    return "\n".join([x for x in lines if x is not None]).strip()
+
+
+def _split_to_stream_parts(*, text: str, chunk_chars: int = 200) -> list[str]:
+    """
+    把一段文本切成更适合 SSE 发送的多个片段。
+
+    Args:
+        text (str): 完整文本。
+        chunk_chars (int): 每个片段的最大字符数。
+
+    Returns:
+        list[str]: 文本片段列表。
+    """
+    if not text:
+        return []
+    if chunk_chars <= 0:
+        return [text]
+    return [text[i : i + chunk_chars] for i in range(0, len(text), chunk_chars)]
 
 
 async def load_history_from_db(conversation_id: UUID) -> list[dict[str, str]]:
@@ -231,6 +320,8 @@ async def chat(
         except ValueError as exc:
             raise ConfigurationError(message=str(exc)) from exc
 
+    rag_generator.llm_client = llm_client
+
     conversation_id = payload.conversation_id or uuid4()
 
     if payload.conversation_id is not None:
@@ -238,6 +329,49 @@ async def chat(
     else:
         messages = [{"role": m.role, "content": m.content} for m in payload.history]
     messages.append({"role": "user", "content": payload.message})
+
+    use_rag = _should_use_rag(message=payload.message, force=payload.use_rag)
+
+    if use_rag:
+        if stream:
+            await persist_user_message_to_db(conversation_id, payload.message)
+            rag_answer = await rag_generator.generate_answer(
+                query=payload.message,
+                top_k=5,
+                collection_name=payload.collection_name,
+            )
+            reply_text = _format_rag_reply(answer=rag_answer)
+            parts = _split_to_stream_parts(text=reply_text)
+
+            async def _rag_generator() -> AsyncGenerator[str, None]:
+                yield sse_event(
+                    data={"type": "meta", "conversation_id": str(conversation_id), "rag": True}
+                )
+                for p in parts:
+                    if p:
+                        yield sse_event(data={"type": "delta", "content": p})
+                yield sse_event(data={"type": "done"}, event="done")
+
+            async def _persist_after_rag_stream() -> AsyncGenerator[str, None]:
+                try:
+                    async for item in _rag_generator():
+                        yield item
+                finally:
+                    if reply_text:
+                        await persist_assistant_message_to_db(conversation_id, reply_text)
+
+            return StreamingResponse(
+                _persist_after_rag_stream(), media_type="text/event-stream"
+            )
+
+        rag_answer = await rag_generator.generate_answer(
+            query=payload.message,
+            top_k=5,
+            collection_name=payload.collection_name,
+        )
+        reply_text = _format_rag_reply(answer=rag_answer)
+        await persist_turn_to_db(conversation_id, payload.message, reply_text)
+        return ChatResponse(conversation_id=conversation_id, reply=reply_text)
 
     if stream:
         await persist_user_message_to_db(conversation_id, payload.message)
