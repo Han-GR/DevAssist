@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, UploadFile
 from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.errors import AppError, ConfigurationError
+from app.db.models import Document
+from app.db.session import SessionLocal
 from app.rag.chroma import ChromaCollectionManager
 from app.rag.embedder import Embedder
 from app.rag.splitter import split_text_semantic
@@ -19,6 +21,7 @@ chroma_manager: ChromaCollectionManager | None = None
 
 
 class IngestResponse(BaseModel):
+    document_id: UUID
     filename: str
     collection: str
     chunk_count: int
@@ -78,6 +81,32 @@ def get_chroma_manager() -> ChromaCollectionManager:
     return chroma_manager
 
 
+async def persist_document_to_db(*, title: str, source: str, chunk_count: int) -> UUID:
+    """
+    把一次 ingestion 的元信息写入 documents 表。
+
+    Args:
+        title (str): 文档标题（当前阶段一般直接用文件名）。
+        source (str): 文档来源标识（当前阶段一般直接用文件名/路径）。
+        chunk_count (int): 切分后的 chunk 数量。
+
+    Returns:
+        UUID: 新建的 document_id。
+
+    Raises:
+        Exception: 数据库连接或写入失败时可能抛出异常（由全局异常处理器统一处理）。
+
+    Notes/Examples:
+        目前只写“最小可追踪”的字段，后续做删除/重建索引时，可以通过 document_id 反查对应的向量条目。
+    """
+    async with SessionLocal() as session:
+        doc = Document(title=title, source=source, chunk_count=chunk_count)
+        session.add(doc)
+        await session.commit()
+        await session.refresh(doc)
+        return doc.id
+
+
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(file: UploadFile = File(...)) -> IngestResponse:
     """
@@ -95,7 +124,7 @@ async def ingest(file: UploadFile = File(...)) -> IngestResponse:
 
     Notes/Examples:
         - 这是 ingestion 的最小闭环：upload -> chunk -> embed -> store。
-        - 先不落 PostgreSQL 的 documents 元信息（后续阶段再补）。
+        - 会把文档元信息写入 PostgreSQL 的 documents 表，便于后续做管理与回溯。
     """
     filename = file.filename or "upload"
     lowered = filename.lower()
@@ -148,7 +177,14 @@ async def ingest(file: UploadFile = File(...)) -> IngestResponse:
     ]
     collection.add(ids=ids, documents=chunks, embeddings=vectors, metadatas=metadatas)
 
+    document_id = await persist_document_to_db(
+        title=filename,
+        source=filename,
+        chunk_count=len(chunks),
+    )
+
     return IngestResponse(
+        document_id=document_id,
         filename=filename,
         collection=settings.chroma_collection,
         chunk_count=len(chunks),
