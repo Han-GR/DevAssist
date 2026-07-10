@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -79,3 +79,24 @@ class Message(TimestampMixin, Base):
     citations: Mapped[dict | list | None] = mapped_column(JSONB, nullable=True)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+
+
+class Document(TimestampMixin, Base):
+    """
+    文档表：记录一次 ingestion 的元信息。
+
+    当前阶段主要用途是“可追踪”：知道哪些文件被写入了知识库，以及大概切了多少 chunk。
+    后续如果要做删除/重建索引/版本化，这张表会成为核心索引入口。
+    """
+
+    __tablename__ = "documents"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    title: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    source: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
