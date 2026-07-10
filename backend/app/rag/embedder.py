@@ -75,14 +75,14 @@ class Embedder:
         )
 
     async def embed_texts(
-        self, texts: list[str], *, batch_size: int = 96
+        self, texts: list[str], *, batch_size: int = 64
     ) -> list[list[float]]:
         """
         对一组文本生成 embedding 向量（支持自动分批）。
 
         Args:
             texts (list[str]): 待 embedding 的文本列表。
-            batch_size (int): 单次请求的批大小，默认 96。
+            batch_size (int): 单次请求的批大小，默认 64。
 
         Returns:
             list[list[float]]: 与 texts 一一对应的向量列表。
