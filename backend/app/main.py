@@ -16,6 +16,7 @@ from uuid import uuid4
 from app.core.config import get_settings, setup_logging
 from app.core.errors import register_error_handlers
 from app.api.chat import router as chat_router
+from app.api.ingest import router as ingest_router
 
 
 settings = get_settings()
@@ -36,6 +37,7 @@ app.add_middleware(
 )
 register_error_handlers(app)
 app.include_router(chat_router)
+app.include_router(ingest_router)
 
 
 @app.middleware("http")
