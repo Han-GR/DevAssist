@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+from uuid import uuid4
+
+from fastapi import APIRouter, File, UploadFile
+from pydantic import BaseModel
+
+from app.core.config import get_settings
+from app.core.errors import AppError, ConfigurationError
+from app.rag.chroma import ChromaCollectionManager
+from app.rag.embedder import Embedder
+from app.rag.splitter import split_text_semantic
+
+
+router = APIRouter()
+
+embedder: Embedder | None = None
+chroma_manager: ChromaCollectionManager | None = None
+
+
+class IngestResponse(BaseModel):
+    filename: str
+    collection: str
+    chunk_count: int
+
+
+def get_embedder() -> Embedder:
+    """
+    获取 Embedder 单例。
+
+    Returns:
+        Embedder: 复用的 embedding 客户端实例。
+
+    Raises:
+        ConfigurationError: embedding 配置缺失或不合法时抛出。
+
+    Notes/Examples:
+        ingest 是一个“高频的 I/O 接口”，Embedder 复用能减少底层 client 的重复创建开销。
+    """
+    global embedder
+
+    if embedder is not None:
+        return embedder
+
+    settings = get_settings()
+    try:
+        embedder = Embedder.from_settings(settings)
+    except ValueError as exc:
+        raise ConfigurationError(message=str(exc)) from exc
+
+    return embedder
+
+
+def get_chroma_manager() -> ChromaCollectionManager:
+    """
+    获取 ChromaCollectionManager 单例。
+
+    Returns:
+        ChromaCollectionManager: 复用的 collection 管理器。
+
+    Raises:
+        ConfigurationError: chroma 配置不合法时抛出。
+
+    Notes/Examples:
+        这里先用 HttpClient 直连 Chroma 服务；后续需要更复杂的 collection 策略，再在 manager 里扩展即可。
+    """
+    global chroma_manager
+
+    if chroma_manager is not None:
+        return chroma_manager
+
+    settings = get_settings()
+    try:
+        chroma_manager = ChromaCollectionManager.from_settings(settings)
+    except ValueError as exc:
+        raise ConfigurationError(message=str(exc)) from exc
+
+    return chroma_manager
+
+
+@router.post("/ingest", response_model=IngestResponse)
+async def ingest(file: UploadFile = File(...)) -> IngestResponse:
+    """
+    上传并写入知识库（最小版本）。
+
+    Args:
+        file (UploadFile): 上传文件（当前阶段只支持 UTF-8 的 .txt/.md）。
+
+    Returns:
+        IngestResponse: 写入结果（chunk 数量与 collection 名）。
+
+    Raises:
+        AppError: 文件类型不支持、文本解码失败、切分/embedding 结果不符合预期等。
+        ConfigurationError: embedding/chroma 配置不完整或不合法。
+
+    Notes/Examples:
+        - 这是 ingestion 的最小闭环：upload -> chunk -> embed -> store。
+        - 先不落 PostgreSQL 的 documents 元信息（后续阶段再补）。
+    """
+    filename = file.filename or "upload"
+    lowered = filename.lower()
+    if not (lowered.endswith(".txt") or lowered.endswith(".md")):
+        raise AppError(
+            code="unsupported_file_type",
+            message="Only .txt and .md are supported for now.",
+            status_code=400,
+            details={"filename": filename},
+        )
+
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise AppError(
+            code="invalid_text_encoding",
+            message="File must be UTF-8 encoded.",
+            status_code=400,
+            details={"filename": filename},
+        ) from exc
+
+    chunks = split_text_semantic(text, chunk_size=512, overlap=64)
+    if not chunks:
+        raise AppError(
+            code="empty_document",
+            message="File is empty.",
+            status_code=400,
+            details={"filename": filename},
+        )
+
+    embedding_client = get_embedder()
+    vectors = await embedding_client.embed_texts(chunks)
+    if len(vectors) != len(chunks):
+        raise AppError(
+            code="embedding_mismatch",
+            message="Embedding results do not match chunks.",
+            status_code=500,
+            details={"chunk_count": len(chunks), "vector_count": len(vectors)},
+        )
+
+    settings = get_settings()
+    manager = get_chroma_manager()
+    collection = manager.get_or_create_collection(name=settings.chroma_collection)
+
+    ids = [uuid4().hex for _ in range(len(chunks))]
+    metadatas = [
+        {"source": filename, "chunk_index": i}
+        for i in range(len(chunks))
+    ]
+    collection.add(ids=ids, documents=chunks, embeddings=vectors, metadatas=metadatas)
+
+    return IngestResponse(
+        filename=filename,
+        collection=settings.chroma_collection,
+        chunk_count=len(chunks),
+    )
