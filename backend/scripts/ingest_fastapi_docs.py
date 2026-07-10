@@ -7,12 +7,9 @@ import sys
 
 import httpx
 
-try:
-    from app.rag.ingestion import ingest_text_document
-except ModuleNotFoundError:
-    REPO_ROOT = Path(__file__).resolve().parents[2]
-    sys.path.insert(0, str(REPO_ROOT / "backend"))
-    from app.rag.ingestion import ingest_text_document
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.rag.ingestion import ingest_text_document
 
 
 GITHUB_TREE_URL = "https://api.github.com/repos/tiangolo/fastapi/git/trees/{ref}?recursive=1"
@@ -51,6 +48,18 @@ def parse_args() -> argparse.Namespace:
         help="Chroma collection name (default: fastapi_docs).",
     )
     parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=512,
+        help="Chunk size for splitting (default: 512).",
+    )
+    parser.add_argument(
+        "--overlap",
+        type=int,
+        default=64,
+        help="Chunk overlap for splitting (default: 64).",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -81,7 +90,12 @@ async def fetch_markdown_paths(*, client: httpx.AsyncClient, ref: str, docs_pref
         KeyError: 响应结构不符合预期时抛出。
     """
     url = GITHUB_TREE_URL.format(ref=ref)
-    resp = await client.get(url, headers={"Accept": "application/vnd.github+json"}, timeout=30.0)
+    resp = await client.get(
+        url,
+        headers={"Accept": "application/vnd.github+json"},
+        timeout=30.0,
+        follow_redirects=True,
+    )
     resp.raise_for_status()
     data = resp.json()
     tree = data["tree"]
@@ -116,7 +130,7 @@ async def fetch_markdown(*, client: httpx.AsyncClient, ref: str, path: str) -> s
         httpx.HTTPError: 请求失败时抛出。
     """
     url = GITHUB_RAW_URL.format(ref=ref, path=path)
-    resp = await client.get(url, timeout=30.0)
+    resp = await client.get(url, timeout=30.0, follow_redirects=True)
     resp.raise_for_status()
     return resp.text
 
@@ -160,6 +174,8 @@ async def run() -> int:
                     source=f"fastapi:{path}",
                     text=text,
                     collection_name=args.collection,
+                    chunk_size=args.chunk_size,
+                    overlap=args.overlap,
                 )
             except Exception as exc:
                 print(f"[fail] {path}: {exc}")
