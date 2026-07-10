@@ -13,6 +13,22 @@ services:
       timeout: 3s
       retries: 20
 
+  chroma:
+    image: chromadb/chroma:0.5.5
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat').read()\"",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   migrate:
     build:
       context: ./backend
@@ -34,6 +50,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      chroma:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
@@ -48,3 +66,6 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  chroma_data:
