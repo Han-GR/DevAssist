@@ -25,7 +25,7 @@ async def ingest(file: UploadFile = File(...)) -> IngestResponse:
     上传并写入知识库（最小版本）。
 
     Args:
-        file (UploadFile): 上传文件（当前阶段只支持 UTF-8 的 .txt/.md）。
+        file (UploadFile): 上传文件（当前阶段支持 UTF-8 的 .txt/.md/.py/.js）。
 
     Returns:
         IngestResponse: 写入结果（chunk 数量与 collection 名）。
@@ -40,10 +40,15 @@ async def ingest(file: UploadFile = File(...)) -> IngestResponse:
     """
     filename = file.filename or "upload"
     lowered = filename.lower()
-    if not (lowered.endswith(".txt") or lowered.endswith(".md")):
+    if not (
+        lowered.endswith(".txt")
+        or lowered.endswith(".md")
+        or lowered.endswith(".py")
+        or lowered.endswith(".js")
+    ):
         raise AppError(
             code="unsupported_file_type",
-            message="Only .txt and .md are supported for now.",
+            message="Only .txt, .md, .py and .js are supported for now.",
             status_code=400,
             details={"filename": filename},
         )
