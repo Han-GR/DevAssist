@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     embedding_model: str = ""
     embedding_api_key: str = ""
     embedding_base_url: str = ""
+    chroma_host: str = "chroma"
+    chroma_port: int = 8000
+    chroma_collection: str = "devassist"
     database_url: str = "postgresql+asyncpg://devassist:devassist@db:5432/devassist"
 
     model_config = SettingsConfigDict(
