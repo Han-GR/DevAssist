@@ -6,13 +6,15 @@ from pathlib import Path
 import sys
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SCRIPT_ROOT))
 
-try:
-    from app.rag.ingestion import ingest_text_document
-except ModuleNotFoundError:
-    sys.path.insert(0, str(REPO_ROOT / "backend"))
-    from app.rag.ingestion import ingest_text_document
+from app.rag.ingestion import ingest_text_document
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if not (REPO_ROOT / "data").exists():
+    REPO_ROOT = SCRIPT_ROOT
 
 
 def default_docs_dir() -> Path:
@@ -62,6 +64,18 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Override collection name (default: CHROMA_COLLECTION).",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=512,
+        help="Chunk size for splitting (default: 512).",
+    )
+    parser.add_argument(
+        "--overlap",
+        type=int,
+        default=64,
+        help="Chunk overlap for splitting (default: 64).",
     )
     parser.add_argument(
         "--limit",
@@ -149,6 +163,8 @@ async def run() -> int:
                 source=source,
                 text=text,
                 collection_name=args.collection,
+                chunk_size=args.chunk_size,
+                overlap=args.overlap,
             )
         except Exception as exc:
             print(f"[fail] {p}: {exc}")
