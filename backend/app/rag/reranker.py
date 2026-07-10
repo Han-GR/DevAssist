@@ -53,7 +53,7 @@ def _overlap_score(*, query: str, content: str) -> float:
 
 
 def rerank(
-    *, query: str, chunks: Sequence[HasContent], top_k: int = 5
+    *, query: str, chunks: Sequence[HasContent], top_k: int = 5, min_score: float = 0.0
 ) -> list[RerankedChunk]:
     """
     对候选 chunks 做二次排序（rerank）。
@@ -62,6 +62,7 @@ def rerank(
         query (str): 用户查询。
         chunks (Sequence[HasContent]): 候选 chunk 列表（向量检索/混合检索的输出）。
         top_k (int): 返回数量，默认 5。
+        min_score (float): 最小分数阈值，默认 0.0（等价于旧行为：只保留 score > 0）。
 
     Returns:
         list[RerankedChunk]: rerank 后的 Top-K 结果。
@@ -80,11 +81,14 @@ def rerank(
         scored.append(RerankedChunk(id=c.id, content=c.content, metadata=c.metadata, score=score))
 
     scored.sort(key=lambda x: x.score, reverse=True)
-    return [s for s in scored[:top_k] if s.score > 0]
+    picked = [s for s in scored[:top_k] if s.score > min_score]
+    if not picked and min_score <= 0.0:
+        return list(scored[:top_k])
+    return picked
 
 
 def rerank_iter(
-    *, query: str, chunks: Iterable[HasContent], top_k: int = 5
+    *, query: str, chunks: Iterable[HasContent], top_k: int = 5, min_score: float = 0.0
 ) -> list[RerankedChunk]:
     """
     rerank 的 Iterable 版本（便于上游用 generator 供数）。
@@ -97,5 +101,4 @@ def rerank_iter(
     Returns:
         list[RerankedChunk]: rerank 后的 Top-K 结果。
     """
-    return rerank(query=query, chunks=list(chunks), top_k=top_k)
-
+    return rerank(query=query, chunks=list(chunks), top_k=top_k, min_score=min_score)
