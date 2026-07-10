@@ -35,8 +35,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--extensions",
         type=str,
-        default=".md,.txt",
-        help="Comma-separated extensions (default: .md,.txt).",
+        default=".md,.txt,.py,.js",
+        help="Comma-separated extensions (default: .md,.txt,.py,.js).",
     )
     parser.add_argument(
         "--collection",
