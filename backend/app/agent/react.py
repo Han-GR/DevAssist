@@ -8,6 +8,7 @@ from typing import Any
 import structlog
 
 from app.agent.tools import ToolRegistry
+from app.agent.trace import TraceRecorder
 from app.core.errors import AppError
 from app.core.llm import LLMClient
 
@@ -108,14 +109,29 @@ class ReActAgent:
         ]
 
         steps: list[ReActStep] = []
+        trace = TraceRecorder()
 
         for i in range(self._max_iterations):
             self._logger.info("react_iteration_start", iteration=i)
+            started_at_ms = trace.start_step(step_index=i)
             resp = await self._llm.chat(messages=messages, temperature=0.0, stream=False)
             content = str(resp.choices[0].message.content or "")
             messages.append({"role": "assistant", "content": content})
 
-            parsed = _parse_react_output(content)
+            try:
+                parsed = _parse_react_output(content)
+            except AppError as exc:
+                trace.finish_step(
+                    step_index=i,
+                    started_at_ms=started_at_ms,
+                    thought="",
+                    action_raw="",
+                    tool_name=None,
+                    tool_args=None,
+                    observation=None,
+                    error=str(exc),
+                )
+                raise
 
             if parsed["type"] == "final":
                 final_answer = parsed["final"]
@@ -128,11 +144,34 @@ class ReActAgent:
                         observation=None,
                     )
                 )
+                trace.finish_step(
+                    step_index=i,
+                    started_at_ms=started_at_ms,
+                    thought=parsed.get("thought", ""),
+                    action_raw=parsed.get("action_raw", ""),
+                    tool_name=None,
+                    tool_args=None,
+                    observation=None,
+                    error=None,
+                )
                 return final_answer, steps
 
             tool_name = parsed["tool_name"]
             tool_args = parsed["tool_args"]
-            observation = await self._tools.call(name=tool_name, payload=tool_args)
+            try:
+                observation = await self._tools.call(name=tool_name, payload=tool_args)
+            except Exception as exc:
+                trace.finish_step(
+                    step_index=i,
+                    started_at_ms=started_at_ms,
+                    thought=parsed.get("thought", ""),
+                    action_raw=parsed.get("action_raw", ""),
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    observation=None,
+                    error=str(exc),
+                )
+                raise
             steps.append(
                 ReActStep(
                     thought=parsed.get("thought", ""),
@@ -141,6 +180,16 @@ class ReActAgent:
                     tool_args=tool_args,
                     observation=observation,
                 )
+            )
+            trace.finish_step(
+                step_index=i,
+                started_at_ms=started_at_ms,
+                thought=parsed.get("thought", ""),
+                action_raw=parsed.get("action_raw", ""),
+                tool_name=tool_name,
+                tool_args=tool_args,
+                observation=observation,
+                error=None,
             )
 
             observation_text = _format_tool_observation(
