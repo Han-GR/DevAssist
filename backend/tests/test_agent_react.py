@@ -73,6 +73,13 @@ def test_react_agent_tool_then_final() -> None:
     assert steps[0].observation == {"echo": "hi"}
     assert steps[1].tool_name is None
 
+    assert len(llm.calls) == 2
+    second_call_messages = llm.calls[1]["messages"]
+    last_user_message = second_call_messages[-1]
+    assert last_user_message["role"] == "user"
+    assert "Observation:" in last_user_message["content"]
+    assert "\"tool_name\": \"echo\"" in last_user_message["content"]
+
 
 def test_react_agent_args_json_invalid_raises_app_error() -> None:
     registry = ToolRegistry()
@@ -92,3 +99,33 @@ def test_react_agent_args_json_invalid_raises_app_error() -> None:
         asyncio.run(agent.run(user_input="x"))
     assert exc.value.code == "agent_parse_error"
 
+
+def test_react_agent_observation_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.agent import react as react_module
+
+    huge = "x" * (react_module.MAX_OBSERVATION_CHARS + 200)
+
+    registry = ToolRegistry()
+    registry.register(
+        Tool(
+            name="big",
+            description="big",
+            parameters={"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+            handler=lambda: {"data": huge},
+        )
+    )
+
+    llm = _FakeLLM(
+        outputs=[
+            "Thought: call tool\nAction: tool:big\nargs: {}",
+            "Thought: done\nAction: final: ok",
+        ]
+    )
+
+    agent = ReActAgent(llm=llm, tools=registry, max_iterations=2)  # type: ignore[arg-type]
+    final, _ = asyncio.run(agent.run(user_input="x"))
+    assert final == "ok"
+
+    second_call_messages = llm.calls[1]["messages"]
+    last_user_message = second_call_messages[-1]
+    assert "\"result_truncated\": true" in last_user_message["content"]
