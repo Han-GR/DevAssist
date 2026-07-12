@@ -7,6 +7,8 @@ import structlog
 from app.agent.tools import Tool
 from app.core.errors import AppError
 from app.agent.sandbox import execute_python
+from app.agent.sandbox_safety import check_code_safety, format_safety_report
+from app.core.config import get_settings
 from app.rag.retriever import HybridChunk, hybrid_search
 
 
@@ -176,8 +178,11 @@ def create_execute_code_tool() -> Tool:
             dict[str, Any]: sandbox 执行结果。
 
         Raises:
-            AppError: timeout_s 非法时抛出。
+            AppError: timeout_s 非法、或代码包含 blocked 级别危险操作时抛出。
             Exception: 底层执行异常原样抛出，由上层统一处理。
+
+        Notes/Examples:
+            安全检查在执行前进行静态扫描；blocked 级别直接拒绝，warning 级别记录日志后继续执行。
         """
         if timeout_s <= 0:
             raise AppError(
@@ -186,6 +191,28 @@ def create_execute_code_tool() -> Tool:
                 status_code=400,
                 details={"timeout_s": timeout_s},
             )
+
+        # 安全检查
+        settings = get_settings()
+        allowed_paths = (
+            [p.strip() for p in settings.sandbox_allowed_paths.split(",") if p.strip()]
+            if settings.sandbox_allowed_paths
+            else []
+        )
+        safety = check_code_safety(code=code, allowed_paths=allowed_paths)
+        logger = structlog.get_logger()
+        if safety.issues:
+            report = format_safety_report(safety)
+            if safety.is_blocked:
+                logger.warning("sandbox_code_blocked", report=report)
+                raise AppError(
+                    code="sandbox_code_blocked",
+                    message="Code contains dangerous operations and cannot be executed.",
+                    status_code=400,
+                    details={"report": report},
+                )
+            logger.warning("sandbox_code_warning", report=report)
+
         return await execute_python(code=code, timeout_s=timeout_s)
 
     return Tool(
