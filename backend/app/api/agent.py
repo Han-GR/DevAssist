@@ -1,24 +1,30 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import Any, Literal
-from uuid import uuid4
+import json
+from typing import Any
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
+import structlog
 
 from app.agent.builtin_tools import create_execute_code_tool, create_search_docs_tool
 from app.agent.react import ReActAgent
+from app.agent.trace import TraceRecorder
 from app.agent.tools import ToolRegistry
 from app.core.config import get_settings
 from app.core.errors import ConfigurationError
 from app.core.llm import LLMClient
 from app.core.streaming import sse_event
+from app.db.models import AgentTrace
+from app.db.session import SessionLocal
 
 
 settings = get_settings()
 router = APIRouter()
+logger = structlog.get_logger()
 
 llm_client: LLMClient | None = None
 
@@ -55,6 +61,105 @@ class AgentResponse(BaseModel):
     run_id: str
     answer: str
     steps: list[AgentStep]
+
+
+def _jsonify(value: Any) -> Any:
+    """
+    将任意对象尽量转换为 JSON 友好的结构。
+
+    Args:
+        value (Any): 任意对象（可能包含不可序列化的类型）。
+
+    Returns:
+        Any: 可被 JSON 序列化的结构（dict/list/str/number/...）。
+
+    Raises:
+        None
+
+    Notes/Examples:
+        默认用 json.dumps(default=str) 把未知类型降级为字符串，避免因为单个字段写库失败。
+    """
+    return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+
+
+async def persist_agent_trace_to_db(
+    *,
+    run_id: UUID,
+    agent_type: str,
+    steps: list[dict[str, Any]],
+    result: str | None,
+    error: str | None,
+    conversation_id: UUID | None = None,
+) -> None:
+    """
+    将一次 Agent 运行的 trace 写入数据库。
+
+    Args:
+        run_id (UUID): 本次运行 ID（用于关联一次请求的所有步骤）。
+        agent_type (str): Agent 类型（例如 "react"）。
+        steps (list[dict[str, Any]]): 步骤列表（建议使用 TraceRecorder.to_dict()["steps"] 的结构）。
+        result (str | None): 最终答案；失败时为 None。
+        error (str | None): 错误信息；成功时为 None。
+        conversation_id (UUID | None): 可选的会话 ID（如果这次 Agent 挂载在 chat 会话下）。
+
+    Returns:
+        None
+
+    Raises:
+        Exception: 数据库写入失败时可能抛出异常。
+    """
+    payload_steps = _jsonify(steps)
+    async with SessionLocal() as session:
+        session.add(
+            AgentTrace(
+                run_id=run_id,
+                conversation_id=conversation_id,
+                agent_type=agent_type,
+                steps=payload_steps,
+                result=result,
+                error=error,
+            )
+        )
+        await session.commit()
+
+
+async def _safe_persist_agent_trace(
+    *,
+    run_id: UUID,
+    agent_type: str,
+    steps: list[dict[str, Any]],
+    result: str | None,
+    error: str | None,
+    conversation_id: UUID | None = None,
+) -> None:
+    """
+    尝试落库 Agent trace（失败不影响主流程）。
+
+    Args:
+        run_id (UUID): 本次运行 ID。
+        agent_type (str): Agent 类型。
+        steps (list[dict[str, Any]]): trace steps。
+        result (str | None): 最终答案。
+        error (str | None): 错误信息。
+        conversation_id (UUID | None): 会话 ID。
+
+    Returns:
+        None
+
+    Raises:
+        None
+    """
+    try:
+        await persist_agent_trace_to_db(
+            run_id=run_id,
+            agent_type=agent_type,
+            steps=steps,
+            result=result,
+            error=error,
+            conversation_id=conversation_id,
+        )
+    except Exception as exc:
+        logger.error("agent_trace_persist_failed", run_id=str(run_id), error=str(exc))
 
 
 def _get_llm_client() -> LLMClient:
@@ -104,15 +209,34 @@ async def agent(request: AgentRequest, stream: bool = False):
     - stream=false：返回 JSON（answer + steps）
     - stream=true：返回 SSE（meta/step/final/done/error）
     """
-    run_id = uuid4().hex
+    run_id = uuid4()
     tools = _build_registry(allowed_tools=request.tools)
     llm = _get_llm_client()
     agent = ReActAgent(llm=llm, tools=tools)
+    trace = TraceRecorder(run_id=str(run_id))
 
     if not stream:
-        answer, steps = await agent.run(user_input=request.message)
-        return AgentResponse(
+        try:
+            answer, steps = await agent.run(user_input=request.message, trace=trace)
+        except Exception as exc:
+            await _safe_persist_agent_trace(
+                run_id=run_id,
+                agent_type="react",
+                steps=trace.to_dict()["steps"],
+                result=None,
+                error=str(exc),
+            )
+            raise
+
+        await _safe_persist_agent_trace(
             run_id=run_id,
+            agent_type="react",
+            steps=trace.to_dict()["steps"],
+            result=answer,
+            error=None,
+        )
+        return AgentResponse(
+            run_id=str(run_id),
             answer=answer,
             steps=[
                 AgentStep(
@@ -131,12 +255,19 @@ async def agent(request: AgentRequest, stream: bool = False):
             yield sse_event(
                 data={
                     "type": "meta",
-                    "run_id": run_id,
+                    "run_id": str(run_id),
                     "tools": [t.name for t in tools.list()],
                 }
             )
 
-            answer, steps = await agent.run(user_input=request.message)
+            answer, steps = await agent.run(user_input=request.message, trace=trace)
+            await _safe_persist_agent_trace(
+                run_id=run_id,
+                agent_type="react",
+                steps=trace.to_dict()["steps"],
+                result=answer,
+                error=None,
+            )
             for s in steps:
                 yield sse_event(
                     data={
@@ -151,10 +282,16 @@ async def agent(request: AgentRequest, stream: bool = False):
             yield sse_event(data={"type": "final", "answer": answer})
             yield sse_event(data={"type": "done"}, event="done")
         except Exception as exc:
+            await _safe_persist_agent_trace(
+                run_id=run_id,
+                agent_type="react",
+                steps=trace.to_dict()["steps"],
+                result=None,
+                error=str(exc),
+            )
             yield sse_event(
                 data={"type": "error", "message": "agent_error", "detail": str(exc)},
                 event="error",
             )
 
     return StreamingResponse(_stream(), media_type="text/event-stream")
-
