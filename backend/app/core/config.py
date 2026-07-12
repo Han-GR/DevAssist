@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     chroma_port: int = 8000
     chroma_collection: str = "devassist"
     database_url: str = "postgresql+asyncpg://devassist:devassist@db:5432/devassist"
+    sandbox_image: str = "python:3.12-slim"
+    sandbox_timeout: int = 5
+    sandbox_memory_limit: str = "256m"
 
     model_config = SettingsConfigDict(
         # 开发阶段优先图省事：本地可以放一个 .env；线上则直接走环境变量
