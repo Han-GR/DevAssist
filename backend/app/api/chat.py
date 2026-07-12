@@ -5,7 +5,7 @@
 - 非流式：返回 JSON（conversation_id + reply）
 - 流式：返回 SSE（meta/delta/done）
 
-Day10 开始接入 PostgreSQL：
+开始接入 PostgreSQL：
 - 请求带 conversation_id 时优先用 DB 历史
 - 消息会写入 messages 表，支持后续做会话列表/回放
 """

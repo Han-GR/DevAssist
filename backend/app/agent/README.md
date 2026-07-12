@@ -142,7 +142,7 @@ Action: final: 这里是最终答案……
   - 失败后返回结构化错误，让 LLM 有机会自我修正参数或改用其它工具
 - 沙箱超时：返回 `sandbox_timeout`，并保证容器被 kill/remove（避免资源泄露）
 
-在 Day39/Day40 的实现中，沙箱超时会触发 kill + remove，且有单测覆盖。
+在之前的实现中，沙箱超时会触发 kill + remove，且有单测覆盖。
 
 ---
 

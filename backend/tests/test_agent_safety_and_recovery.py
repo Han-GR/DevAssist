@@ -1,6 +1,4 @@
 """
-Day55 — Agent 安全与错误恢复综合测试。
-
 覆盖：
 A. 安全边界（sandbox_safety）
    - 更多危险模式（shutil/os.remove/pathlib.write_text/importlib）
@@ -15,7 +13,7 @@ B. 错误恢复边界（_call_tool_with_retry）
 
 C. ReActAgent 全链路边界
    - 工具失败后模型也达到迭代上限 → 抛 agent_max_iterations
-   - 工具失败 + 模型给出 final answer（已在 Day53 覆盖，这里补充 trace 记录验证）
+   - 工具失败 + 模型给出 final answer（之前已覆盖，这里补充 trace 记录验证）
 
 D. /agent API 层安全拦截
    - 请求中 execute_code 工具调用危险代码 → 工具 handler 抛 AppError → Agent 收到 error observation → 模型给出 final answer（不崩溃）

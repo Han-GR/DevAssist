@@ -1,6 +1,4 @@
 """
-Day53 — 工具调用错误恢复单测。
-
 验证：
 1. 工具首次失败后会 retry，retry 成功则正常返回 observation。
 2. 全部 retry 耗尽后，错误作为 Observation 注入循环（不抛异常），
