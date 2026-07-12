@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -84,6 +85,7 @@ class ReActAgent:
         *,
         user_input: str,
         trace: TraceRecorder | None = None,
+        history_messages: Sequence[dict[str, str]] | None = None,
     ) -> tuple[str, list[ReActStep]]:
         """
         执行一次 ReAct 推理并返回最终答案。
@@ -91,6 +93,7 @@ class ReActAgent:
         Args:
             user_input (str): 用户输入。
             trace (TraceRecorder | None): 可选的 trace 记录器；不传则内部新建一个。
+            history_messages (Sequence[dict[str, str]] | None): 可选的历史消息（OpenAI-style messages）。
 
         Returns:
             tuple[str, list[ReActStep]]: (final_answer, steps)
@@ -109,10 +112,10 @@ class ReActAgent:
             )
 
         system_prompt = _build_system_prompt(tools=self._tools)
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_input},
-        ]
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        if history_messages:
+            messages.extend(list(history_messages))
+        messages.append({"role": "user", "content": user_input})
 
         steps: list[ReActStep] = []
         recorder = trace or TraceRecorder()
@@ -120,7 +123,7 @@ class ReActAgent:
         for i in range(self._max_iterations):
             self._logger.info("react_iteration_start", iteration=i)
             started_at_ms = recorder.start_step(step_index=i)
-            resp = await self._llm.chat(messages=messages, temperature=0.0, stream=False)
+            resp = await self._llm.chat(messages=list(messages), temperature=0.0, stream=False)
             content = str(resp.choices[0].message.content or "")
             messages.append({"role": "assistant", "content": content})
 
@@ -330,6 +333,7 @@ def _parse_react_output(text: str) -> dict[str, Any]:
 
     raw_args = args_match.group(1).strip()
     if raw_args.startswith("```"):
+        raw_args = text[args_match.start(1) :].strip()
         raw_args = _strip_code_fence(raw_args)
 
     try:
