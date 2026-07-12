@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 
@@ -84,3 +84,61 @@ async def list_agent_traces(limit: int = 50):
         - GET /admin/agent-traces?limit=50
     """
     return await list_agent_traces_from_db(limit=limit)
+
+
+async def get_agent_trace_from_db(*, run_id: UUID) -> AgentTraceItem | None:
+    """
+    从数据库按 run_id 查询单条 Agent trace。
+
+    Args:
+        run_id (UUID): 要查询的 run_id。
+
+    Returns:
+        AgentTraceItem | None: 找到则返回详情，否则返回 None。
+
+    Raises:
+        Exception: 数据库连接或查询失败时原样抛出。
+
+    Notes/Examples:
+        - 供 GET /admin/agent-traces/{run_id} 使用。
+    """
+    async with SessionLocal() as session:
+        result = await session.execute(
+            select(AgentTrace).where(AgentTrace.run_id == run_id)
+        )
+        row = result.scalars().first()
+        if row is None:
+            return None
+        return AgentTraceItem(
+            run_id=row.run_id,
+            conversation_id=row.conversation_id,
+            agent_type=row.agent_type,
+            steps=list(row.steps or []),
+            result=row.result,
+            error=row.error,
+            created_at=row.created_at.isoformat(),
+        )
+
+
+@router.get("/agent-traces/{run_id}", response_model=AgentTraceItem)
+async def get_agent_trace(run_id: UUID):
+    """
+    管理端：查看单条 Agent trace 详情。
+
+    Args:
+        run_id (UUID): trace 的 run_id（路径参数）。
+
+    Returns:
+        AgentTraceItem: 单条 trace 详情（含完整 steps）。
+
+    Raises:
+        HTTPException 404: run_id 不存在时抛出。
+        Exception: 数据库异常会交给全局异常处理器统一处理。
+
+    Notes/Examples:
+        - GET /admin/agent-traces/{run_id}
+    """
+    item = await get_agent_trace_from_db(run_id=run_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="trace not found")
+    return item
