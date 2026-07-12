@@ -44,6 +44,29 @@ class _FakeLLMClient:
 def test_agent_returns_json() -> None:
     client = TestClient(main_module.app)
     agent_module.llm_client = _FakeLLMClient(outputs=["Thought: x\nAction: final: ok"])  # type: ignore[assignment]
+    persisted: list[dict[str, Any]] = []
+
+    async def _fake_persist_agent_trace_to_db(
+        *,
+        run_id,
+        agent_type: str,
+        steps: list[dict[str, Any]],
+        result: str | None,
+        error: str | None,
+        conversation_id=None,
+    ) -> None:
+        persisted.append(
+            {
+                "run_id": str(run_id),
+                "agent_type": agent_type,
+                "steps": steps,
+                "result": result,
+                "error": error,
+                "conversation_id": str(conversation_id) if conversation_id else None,
+            }
+        )
+
+    agent_module.persist_agent_trace_to_db = _fake_persist_agent_trace_to_db  # type: ignore[assignment]
 
     resp = client.post("/agent", json={"message": "hi"})
     assert resp.status_code == 200
@@ -51,11 +74,35 @@ def test_agent_returns_json() -> None:
     assert body["answer"] == "ok"
     assert body["run_id"]
     assert len(body["steps"]) == 1
+    assert persisted and persisted[0]["result"] == "ok"
 
 
 def test_agent_streaming_returns_sse() -> None:
     client = TestClient(main_module.app)
     agent_module.llm_client = _FakeLLMClient(outputs=["Thought: x\nAction: final: ok"])  # type: ignore[assignment]
+    persisted: list[dict[str, Any]] = []
+
+    async def _fake_persist_agent_trace_to_db(
+        *,
+        run_id,
+        agent_type: str,
+        steps: list[dict[str, Any]],
+        result: str | None,
+        error: str | None,
+        conversation_id=None,
+    ) -> None:
+        persisted.append(
+            {
+                "run_id": str(run_id),
+                "agent_type": agent_type,
+                "steps": steps,
+                "result": result,
+                "error": error,
+                "conversation_id": str(conversation_id) if conversation_id else None,
+            }
+        )
+
+    agent_module.persist_agent_trace_to_db = _fake_persist_agent_trace_to_db  # type: ignore[assignment]
 
     resp = client.post("/agent?stream=true", json={"message": "hi"})
     assert resp.status_code == 200
@@ -64,4 +111,4 @@ def test_agent_streaming_returns_sse() -> None:
     assert "\"type\": \"meta\"" in text
     assert "\"type\": \"final\"" in text
     assert "\"type\": \"done\"" in text
-
+    assert persisted and persisted[0]["result"] == "ok"
