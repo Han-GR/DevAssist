@@ -11,6 +11,7 @@ from starlette.responses import StreamingResponse
 import structlog
 
 from app.agent.builtin_tools import create_execute_code_tool, create_search_docs_tool
+from app.agent.memory import short_term_memory
 from app.agent.react import ReActAgent
 from app.agent.trace import TraceRecorder
 from app.agent.tools import ToolRegistry
@@ -39,6 +40,7 @@ class AgentRequest(BaseModel):
 
     message: str
     tools: list[str] | None = None
+    conversation_id: UUID | None = None
 
 
 class AgentStep(BaseModel):
@@ -210,6 +212,11 @@ async def agent(request: AgentRequest, stream: bool = False):
     - stream=true：返回 SSE（meta/step/final/done/error）
     """
     run_id = uuid4()
+    history_messages = (
+        await short_term_memory.get_history(conversation_id=request.conversation_id)
+        if request.conversation_id is not None
+        else []
+    )
     tools = _build_registry(allowed_tools=request.tools)
     llm = _get_llm_client()
     agent = ReActAgent(llm=llm, tools=tools)
@@ -217,7 +224,11 @@ async def agent(request: AgentRequest, stream: bool = False):
 
     if not stream:
         try:
-            answer, steps = await agent.run(user_input=request.message, trace=trace)
+            answer, steps = await agent.run(
+                user_input=request.message,
+                trace=trace,
+                history_messages=history_messages,
+            )
         except Exception as exc:
             await _safe_persist_agent_trace(
                 run_id=run_id,
@@ -225,6 +236,7 @@ async def agent(request: AgentRequest, stream: bool = False):
                 steps=trace.to_dict()["steps"],
                 result=None,
                 error=str(exc),
+                conversation_id=request.conversation_id,
             )
             raise
 
@@ -234,7 +246,14 @@ async def agent(request: AgentRequest, stream: bool = False):
             steps=trace.to_dict()["steps"],
             result=answer,
             error=None,
+            conversation_id=request.conversation_id,
         )
+        if request.conversation_id is not None:
+            await short_term_memory.add_turn(
+                conversation_id=request.conversation_id,
+                user=request.message,
+                assistant=answer,
+            )
         return AgentResponse(
             run_id=str(run_id),
             answer=answer,
@@ -260,14 +279,25 @@ async def agent(request: AgentRequest, stream: bool = False):
                 }
             )
 
-            answer, steps = await agent.run(user_input=request.message, trace=trace)
+            answer, steps = await agent.run(
+                user_input=request.message,
+                trace=trace,
+                history_messages=history_messages,
+            )
             await _safe_persist_agent_trace(
                 run_id=run_id,
                 agent_type="react",
                 steps=trace.to_dict()["steps"],
                 result=answer,
                 error=None,
+                conversation_id=request.conversation_id,
             )
+            if request.conversation_id is not None:
+                await short_term_memory.add_turn(
+                    conversation_id=request.conversation_id,
+                    user=request.message,
+                    assistant=answer,
+                )
             for s in steps:
                 yield sse_event(
                     data={
@@ -288,6 +318,7 @@ async def agent(request: AgentRequest, stream: bool = False):
                 steps=trace.to_dict()["steps"],
                 result=None,
                 error=str(exc),
+                conversation_id=request.conversation_id,
             )
             yield sse_event(
                 data={"type": "error", "message": "agent_error", "detail": str(exc)},
