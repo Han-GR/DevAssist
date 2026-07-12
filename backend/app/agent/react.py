@@ -16,6 +16,7 @@ from app.core.llm import LLMClient
 
 DEFAULT_MAX_ITERATIONS = 10
 MAX_OBSERVATION_CHARS = 8000
+TOOL_MAX_RETRIES = 3  # 工具调用失败后最多重试次数（不含首次）
 
 
 @dataclass(frozen=True)
@@ -167,28 +168,12 @@ class ReActAgent:
 
             tool_name = parsed["tool_name"]
             tool_args = parsed["tool_args"]
-            try:
-                observation = await self._tools.call(name=tool_name, payload=tool_args)
-            except Exception as exc:
-                recorder.finish_step(
-                    step_index=i,
-                    started_at_ms=started_at_ms,
-                    thought=parsed.get("thought", ""),
-                    action_raw=parsed.get("action_raw", ""),
-                    tool_name=tool_name,
-                    tool_args=tool_args,
-                    observation=None,
-                    error=str(exc),
-                )
-                raise
-            steps.append(
-                ReActStep(
-                    thought=parsed.get("thought", ""),
-                    action_raw=parsed.get("action_raw", ""),
-                    tool_name=tool_name,
-                    tool_args=tool_args,
-                    observation=observation,
-                )
+            observation, tool_error = await _call_tool_with_retry(
+                tools=self._tools,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                max_retries=TOOL_MAX_RETRIES,
+                logger=self._logger,
             )
             recorder.finish_step(
                 step_index=i,
@@ -198,14 +183,31 @@ class ReActAgent:
                 tool_name=tool_name,
                 tool_args=tool_args,
                 observation=observation,
-                error=None,
+                error=tool_error,
+            )
+            steps.append(
+                ReActStep(
+                    thought=parsed.get("thought", ""),
+                    action_raw=parsed.get("action_raw", ""),
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    observation=observation,
+                )
             )
 
-            observation_text = _format_tool_observation(
-                tool_name=tool_name,
-                tool_args=tool_args,
-                observation=observation,
-            )
+            if tool_error is not None:
+                # 优雅降级：把错误作为 Observation 注入，让模型决定下一步
+                observation_text = _format_tool_error_observation(
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    error=tool_error,
+                )
+            else:
+                observation_text = _format_tool_observation(
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    observation=observation,
+                )
             messages.append({"role": "user", "content": observation_text})
 
         raise AppError(
@@ -402,6 +404,85 @@ def _safe_json_dumps(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
     except TypeError:
         return str(value)
+
+
+async def _call_tool_with_retry(
+    *,
+    tools: ToolRegistry,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    max_retries: int,
+    logger: Any,
+) -> tuple[Any, str | None]:
+    """
+    调用工具，失败后最多重试 max_retries 次。
+
+    Args:
+        tools (ToolRegistry): 工具注册表。
+        tool_name (str): 工具名称。
+        tool_args (dict[str, Any]): 工具入参。
+        max_retries (int): 最大重试次数（不含首次调用）。
+        logger: structlog logger 实例。
+
+    Returns:
+        tuple[Any, str | None]: (observation, error_message)
+            - 成功时 observation 为工具返回值，error_message 为 None
+            - 全部失败时 observation 为 None，error_message 为最后一次异常信息
+
+    Raises:
+        None: 所有异常均被捕获，通过返回值传递。
+
+    Notes/Examples:
+        重试间隔为 0（不 sleep），保持 Agent 响应速度；
+        每次失败都会打结构化日志 tool_call_failed。
+    """
+    last_error: str | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            result = await tools.call(name=tool_name, payload=tool_args)
+            if attempt > 0:
+                logger.info(
+                    "tool_call_retry_success",
+                    tool_name=tool_name,
+                    attempt=attempt,
+                )
+            return result, None
+        except Exception as exc:
+            last_error = str(exc)
+            logger.warning(
+                "tool_call_failed",
+                tool_name=tool_name,
+                attempt=attempt,
+                max_retries=max_retries,
+                error=last_error,
+            )
+    return None, last_error
+
+
+def _format_tool_error_observation(
+    *, tool_name: str, tool_args: dict[str, Any], error: str
+) -> str:
+    """
+    将工具调用失败信息格式化为 Observation 文本，供模型决定下一步。
+
+    Args:
+        tool_name (str): 工具名称。
+        tool_args (dict[str, Any]): 工具入参。
+        error (str): 错误信息。
+
+    Returns:
+        str: Observation 文本（包含 tool_name/tool_args/error/suggestion）。
+
+    Raises:
+        None
+    """
+    payload_obj: dict[str, Any] = {
+        "tool_name": tool_name,
+        "tool_args": tool_args,
+        "error": error,
+        "suggestion": "The tool call failed after retries. You may try a different approach or provide a final answer based on what you know.",
+    }
+    return f"Observation:\n{_safe_json_dumps(payload_obj)}"
 
 
 def _format_tool_observation(*, tool_name: str, tool_args: dict[str, Any], observation: Any) -> str:
