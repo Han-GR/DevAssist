@@ -13,6 +13,7 @@ from app.core.llm import LLMClient
 
 
 DEFAULT_MAX_ITERATIONS = 10
+MAX_OBSERVATION_CHARS = 8000
 
 
 @dataclass(frozen=True)
@@ -142,7 +143,11 @@ class ReActAgent:
                 )
             )
 
-            observation_text = _format_observation(observation)
+            observation_text = _format_tool_observation(
+                tool_name=tool_name,
+                tool_args=tool_args,
+                observation=observation,
+            )
             messages.append({"role": "user", "content": observation_text})
 
         raise AppError(
@@ -193,7 +198,7 @@ def _build_system_prompt(*, tools: ToolRegistry) -> str:
             "",
             "注意：",
             "- args 必须是严格 JSON（双引号），不要输出多余字段",
-            "- 每次 tool call 后，我会把 Observation 发给你，你再继续下一步",
+            "- 每次 tool call 后，我会把 Observation（含 tool_name/tool_args/result）发给你，你再继续下一步",
         ]
     )
 
@@ -321,22 +326,56 @@ def _strip_code_fence(text: str) -> str:
     return "\n".join(lines[1:-1]).strip()
 
 
-def _format_observation(observation: Any) -> str:
+def _safe_json_dumps(value: Any) -> str:
     """
-    将工具输出格式化成 Observation 文本，供下一轮模型推理使用。
+    将任意对象尽量序列化为 JSON 字符串。
 
     Args:
-        observation (Any): 工具输出。
+        value (Any): 任意对象。
 
     Returns:
-        str: Observation 文本。
+        str: JSON 字符串；若无法 JSON 序列化，则退化为 str(value)。
 
     Raises:
         None
     """
     try:
-        payload = json.dumps(observation, ensure_ascii=False, sort_keys=True)
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
     except TypeError:
-        payload = str(observation)
-    return f"Observation:\n{payload}"
+        return str(value)
 
+
+def _format_tool_observation(*, tool_name: str, tool_args: dict[str, Any], observation: Any) -> str:
+    """
+    将工具调用结果格式化为 Observation 文本，供下一轮模型推理使用。
+
+    Args:
+        tool_name (str): 工具名称。
+        tool_args (dict[str, Any]): 工具入参。
+        observation (Any): 工具输出。
+
+    Returns:
+        str: Observation 文本（包含 tool_name/tool_args/result），并对超长内容做截断保护。
+
+    Raises:
+        None
+
+    Notes/Examples:
+        为了保证“可解析 + 不炸上下文”，Observation 的内容优先使用 JSON；
+        超过长度上限时会返回 result_preview + result_truncated 标记。
+    """
+    payload_obj: dict[str, Any] = {"tool_name": tool_name, "tool_args": tool_args, "result": observation}
+    payload = _safe_json_dumps(payload_obj)
+    if len(payload) <= MAX_OBSERVATION_CHARS:
+        return f"Observation:\n{payload}"
+
+    preview = _safe_json_dumps(observation)
+    if len(preview) > MAX_OBSERVATION_CHARS:
+        preview = preview[:MAX_OBSERVATION_CHARS]
+    truncated_obj = {
+        "tool_name": tool_name,
+        "tool_args": tool_args,
+        "result_preview": preview,
+        "result_truncated": True,
+    }
+    return f"Observation:\n{_safe_json_dumps(truncated_obj)}"
