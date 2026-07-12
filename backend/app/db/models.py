@@ -100,3 +100,28 @@ class Document(TimestampMixin, Base):
         server_default=func.now(),
         nullable=False,
     )
+
+
+class AgentTrace(TimestampMixin, Base):
+    """
+    Agent Trace 表：记录一次 Agent 运行的完整步骤与最终结果。
+
+    设计要点：
+    - steps 用 JSONB 存储，便于后续在前端做“逐步回放”
+    - conversation_id 可选：Agent 既可以独立调用，也可以挂在某个 chat 会话下
+    """
+
+    __tablename__ = "agent_traces"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    run_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False, unique=True, index=True)
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    agent_type: Mapped[str] = mapped_column(String(50), nullable=False, default="react")
+    steps: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False, default=list)
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
