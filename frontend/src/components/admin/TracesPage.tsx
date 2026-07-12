@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 interface AgentTraceStep {
@@ -123,7 +124,7 @@ export function TracesPage({ apiUrl }: { apiUrl: string }) {
                 {t.steps.length}
               </div>
             </div>
-            <div className="text-xs">
+            <div className="flex items-center gap-2 text-xs">
               {t.error ? (
                 <span className="rounded bg-red-100 px-2 py-1 text-red-800">
                   error
@@ -133,6 +134,13 @@ export function TracesPage({ apiUrl }: { apiUrl: string }) {
                   ok
                 </span>
               )}
+              <Link
+                href={`/admin/traces/${t.run_id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="rounded bg-zinc-900 px-2 py-1 text-white hover:bg-zinc-700"
+              >
+                Detail →
+              </Link>
             </div>
           </summary>
 
