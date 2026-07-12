@@ -79,12 +79,18 @@ class ReActAgent:
         self._max_iterations = max_iterations
         self._logger = structlog.get_logger()
 
-    async def run(self, *, user_input: str) -> tuple[str, list[ReActStep]]:
+    async def run(
+        self,
+        *,
+        user_input: str,
+        trace: TraceRecorder | None = None,
+    ) -> tuple[str, list[ReActStep]]:
         """
         执行一次 ReAct 推理并返回最终答案。
 
         Args:
             user_input (str): 用户输入。
+            trace (TraceRecorder | None): 可选的 trace 记录器；不传则内部新建一个。
 
         Returns:
             tuple[str, list[ReActStep]]: (final_answer, steps)
@@ -109,11 +115,11 @@ class ReActAgent:
         ]
 
         steps: list[ReActStep] = []
-        trace = TraceRecorder()
+        recorder = trace or TraceRecorder()
 
         for i in range(self._max_iterations):
             self._logger.info("react_iteration_start", iteration=i)
-            started_at_ms = trace.start_step(step_index=i)
+            started_at_ms = recorder.start_step(step_index=i)
             resp = await self._llm.chat(messages=messages, temperature=0.0, stream=False)
             content = str(resp.choices[0].message.content or "")
             messages.append({"role": "assistant", "content": content})
@@ -121,7 +127,7 @@ class ReActAgent:
             try:
                 parsed = _parse_react_output(content)
             except AppError as exc:
-                trace.finish_step(
+                recorder.finish_step(
                     step_index=i,
                     started_at_ms=started_at_ms,
                     thought="",
@@ -144,7 +150,7 @@ class ReActAgent:
                         observation=None,
                     )
                 )
-                trace.finish_step(
+                recorder.finish_step(
                     step_index=i,
                     started_at_ms=started_at_ms,
                     thought=parsed.get("thought", ""),
@@ -161,7 +167,7 @@ class ReActAgent:
             try:
                 observation = await self._tools.call(name=tool_name, payload=tool_args)
             except Exception as exc:
-                trace.finish_step(
+                recorder.finish_step(
                     step_index=i,
                     started_at_ms=started_at_ms,
                     thought=parsed.get("thought", ""),
@@ -181,7 +187,7 @@ class ReActAgent:
                     observation=observation,
                 )
             )
-            trace.finish_step(
+            recorder.finish_step(
                 step_index=i,
                 started_at_ms=started_at_ms,
                 thought=parsed.get("thought", ""),
