@@ -6,6 +6,7 @@ import structlog
 
 from app.agent.tools import Tool
 from app.core.errors import AppError
+from app.agent.sandbox import execute_python
 from app.rag.retriever import HybridChunk, hybrid_search
 
 
@@ -144,3 +145,71 @@ def _format_chunk(chunk: HybridChunk) -> dict[str, Any]:
         "vector_distance": vector_distance,
         "bm25_score": bm25_score,
     }
+
+
+def create_execute_code_tool() -> Tool:
+    """
+    创建 execute_code 工具定义。
+
+    Args:
+        None
+
+    Returns:
+        Tool: 可注册到 ToolRegistry 的工具实例。
+
+    Raises:
+        None
+
+    Notes/Examples:
+        当前阶段只提供 Python 执行能力，后续如需要多语言，可在 sandbox 层扩展。
+    """
+
+    async def _handler(*, code: str, timeout_s: int = 5) -> dict[str, Any]:
+        """
+        在沙箱中执行 Python 代码并返回 stdout/stderr/exit_code。
+
+        Args:
+            code (str): 待执行代码。
+            timeout_s (int): 执行超时（秒），默认 5。
+
+        Returns:
+            dict[str, Any]: sandbox 执行结果。
+
+        Raises:
+            AppError: timeout_s 非法时抛出。
+            Exception: 底层执行异常原样抛出，由上层统一处理。
+        """
+        if timeout_s <= 0:
+            raise AppError(
+                code="tool_input_invalid",
+                message="timeout_s must be a positive integer.",
+                status_code=400,
+                details={"timeout_s": timeout_s},
+            )
+        return await execute_python(code=code, timeout_s=timeout_s)
+
+    return Tool(
+        name="execute_code",
+        description="在隔离的沙箱中执行 Python 代码，返回 stdout/stderr/exit_code 等结果。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "要执行的 Python 代码"},
+                "timeout_s": {"type": "integer", "description": "超时时间（秒），默认 5"},
+            },
+            "required": ["code"],
+            "additionalProperties": False,
+        },
+        return_schema={
+            "type": "object",
+            "properties": {
+                "stdout": {"type": "string"},
+                "stderr": {"type": "string"},
+                "exit_code": {"type": "integer"},
+                "duration_ms": {"type": "integer"},
+            },
+            "required": ["stdout", "stderr", "exit_code", "duration_ms"],
+            "additionalProperties": False,
+        },
+        handler=_handler,
+    )
