@@ -11,7 +11,7 @@ from starlette.responses import StreamingResponse
 import structlog
 
 from app.agent.builtin_tools import create_execute_code_tool, create_search_docs_tool
-from app.agent.memory import short_term_memory
+from app.agent.memory import agent_memory, short_term_memory
 from app.agent.react import ReActAgent
 from app.agent.trace import TraceRecorder
 from app.agent.tools import ToolRegistry
@@ -212,13 +212,13 @@ async def agent(request: AgentRequest, stream: bool = False):
     - stream=true：返回 SSE（meta/step/final/done/error）
     """
     run_id = uuid4()
+    tools = _build_registry(allowed_tools=request.tools)
+    llm = _get_llm_client()
     history_messages = (
-        await short_term_memory.get_history(conversation_id=request.conversation_id)
+        await agent_memory.build_history(conversation_id=request.conversation_id, query=request.message)
         if request.conversation_id is not None
         else []
     )
-    tools = _build_registry(allowed_tools=request.tools)
-    llm = _get_llm_client()
     agent = ReActAgent(llm=llm, tools=tools)
     trace = TraceRecorder(run_id=str(run_id))
 
@@ -249,10 +249,11 @@ async def agent(request: AgentRequest, stream: bool = False):
             conversation_id=request.conversation_id,
         )
         if request.conversation_id is not None:
-            await short_term_memory.add_turn(
+            await agent_memory.add_turn(
                 conversation_id=request.conversation_id,
                 user=request.message,
                 assistant=answer,
+                llm=llm,
             )
         return AgentResponse(
             run_id=str(run_id),
@@ -293,10 +294,11 @@ async def agent(request: AgentRequest, stream: bool = False):
                 conversation_id=request.conversation_id,
             )
             if request.conversation_id is not None:
-                await short_term_memory.add_turn(
+                await agent_memory.add_turn(
                     conversation_id=request.conversation_id,
                     user=request.message,
                     assistant=answer,
+                    llm=llm,
                 )
             for s in steps:
                 yield sse_event(
