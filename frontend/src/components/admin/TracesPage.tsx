@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-interface AgentTraceStep {
+export interface AgentTraceStep {
   step_index?: number;
   thought?: string;
   action_raw?: string;
@@ -16,7 +16,7 @@ interface AgentTraceStep {
   latency_ms?: number;
 }
 
-interface AgentTraceItem {
+export interface AgentTraceItem {
   run_id: string;
   conversation_id: string | null;
   agent_type: string;
@@ -42,8 +42,14 @@ function safeJson(value: unknown): string {
   }
 }
 
-export function TracesPage({ apiUrl }: { apiUrl: string }) {
-  const [traces, setTraces] = useState<AgentTraceItem[] | null>(null);
+export function TracesPage({
+  apiUrl,
+  initialTraces,
+}: {
+  apiUrl: string;
+  initialTraces: AgentTraceItem[] | null;
+}) {
+  const [traces, setTraces] = useState<AgentTraceItem[] | null>(initialTraces);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -67,10 +73,6 @@ export function TracesPage({ apiUrl }: { apiUrl: string }) {
       setIsLoading(false);
     }
   }
-
-  useEffect(() => {
-    void loadTraces();
-  }, [endpoint]);
 
   return (
     <div className="space-y-4">
@@ -194,4 +196,3 @@ export function TracesPage({ apiUrl }: { apiUrl: string }) {
     </div>
   );
 }
-

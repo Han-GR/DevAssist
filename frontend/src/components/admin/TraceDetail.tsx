@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-interface AgentTraceStep {
+export interface AgentTraceStep {
   step_index?: number;
   thought?: string;
   action_raw?: string;
@@ -15,7 +15,7 @@ interface AgentTraceStep {
   latency_ms?: number;
 }
 
-interface AgentTraceItem {
+export interface AgentTraceItem {
   run_id: string;
   conversation_id: string | null;
   agent_type: string;
@@ -123,11 +123,13 @@ function StepCard({ step, idx }: { step: AgentTraceStep; idx: number }) {
 export function TraceDetail({
   apiUrl,
   runId,
+  initialTrace,
 }: {
   apiUrl: string;
   runId: string;
+  initialTrace: AgentTraceItem | null;
 }) {
-  const [trace, setTrace] = useState<AgentTraceItem | null>(null);
+  const [trace, setTrace] = useState<AgentTraceItem | null>(initialTrace);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -155,13 +157,8 @@ export function TraceDetail({
     }
   }
 
-  useEffect(() => {
-    void loadTrace();
-  }, [endpoint]);
-
   return (
     <div className="space-y-4">
-      {/* 顶部信息栏 */}
       <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-lg font-semibold tracking-tight text-zinc-900">
@@ -193,7 +190,6 @@ export function TraceDetail({
 
       {trace ? (
         <>
-          {/* 元信息 */}
           <div className="rounded-lg border border-zinc-200 bg-white p-4">
             <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
               <div>
@@ -232,7 +228,6 @@ export function TraceDetail({
             ) : null}
           </div>
 
-          {/* 最终结果 */}
           {trace.result ? (
             <div className="rounded-lg border border-zinc-200 bg-white p-4">
               <div className="mb-2 text-sm font-medium text-zinc-900">Result</div>
@@ -251,7 +246,6 @@ export function TraceDetail({
             </div>
           ) : null}
 
-          {/* Steps */}
           <div className="space-y-2">
             <div className="text-sm font-medium text-zinc-900">
               Steps ({trace.steps.length})
