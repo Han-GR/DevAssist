@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from typing import Literal
 from uuid import UUID, uuid4
@@ -31,6 +32,7 @@ import app.rag.generator as rag_generator
 from app.agent.builtin_tools import create_execute_code_tool, create_search_docs_tool
 from app.agent.memory import agent_memory
 from app.agent.react import ReActAgent
+from app.agent.trace import TraceRecorder
 from app.agent.tools import ToolRegistry
 
 
@@ -456,14 +458,46 @@ async def chat(
     if use_agent:
         if stream:
             await persist_user_message_to_db(conversation_id, payload.message)
-            reply_text = await _run_agent_for_chat(
-                llm=llm_client,
-                message=payload.message,
+            reply_text = ""
+
+            history_messages = await agent_memory.build_history(
                 conversation_id=conversation_id,
+                query=payload.message,
             )
-            parts = _split_to_stream_parts(text=reply_text)
+            registry = _build_agent_registry()
+            agent = ReActAgent(llm=llm_client, tools=registry)
+
+            step_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+
+            class _QueueTraceRecorder(TraceRecorder):
+                def finish_step(self, **kwargs):  # type: ignore[override]
+                    step = super().finish_step(**kwargs)
+                    try:
+                        step_queue.put_nowait(step.to_dict())
+                    except Exception:
+                        pass
+                    return step
+
+            trace = _QueueTraceRecorder(run_id=str(conversation_id))
+
+            async def _agent_task() -> str:
+                answer, _ = await agent.run(
+                    user_input=payload.message,
+                    trace=trace,
+                    history_messages=history_messages if history_messages else None,
+                )
+                await agent_memory.add_turn(
+                    conversation_id=conversation_id,
+                    user=payload.message,
+                    assistant=answer,
+                    llm=llm_client,
+                )
+                return answer
+
+            agent_future = asyncio.create_task(_agent_task())
 
             async def _agent_generator() -> AsyncGenerator[str, None]:
+                nonlocal reply_text
                 yield sse_event(
                     data={
                         "type": "meta",
@@ -471,7 +505,26 @@ async def chat(
                         "agent": True,
                     }
                 )
-                for p in parts:
+
+                while True:
+                    if agent_future.done() and step_queue.empty():
+                        break
+
+                    step_get = asyncio.create_task(step_queue.get())
+                    done, pending = await asyncio.wait(
+                        {agent_future, step_get},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+
+                    if step_get in done:
+                        step = step_get.result()
+                        yield sse_event(data={"type": "step", **step})
+                        continue
+
+                    step_get.cancel()
+
+                reply_text = await agent_future
+                for p in _split_to_stream_parts(text=reply_text):
                     if p:
                         yield sse_event(data={"type": "delta", "content": p})
                 yield sse_event(data={"type": "done"}, event="done")
@@ -481,13 +534,12 @@ async def chat(
                     async for item in _agent_generator():
                         yield item
                 finally:
+                    if not agent_future.done():
+                        agent_future.cancel()
                     if reply_text:
                         await persist_assistant_message_to_db(conversation_id, reply_text)
 
-            return StreamingResponse(
-                _persist_after_agent_stream(),
-                media_type="text/event-stream",
-            )
+            return StreamingResponse(_persist_after_agent_stream(), media_type="text/event-stream")
 
         reply_text = await _run_agent_for_chat(
             llm=llm_client,
