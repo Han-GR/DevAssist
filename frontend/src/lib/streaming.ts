@@ -72,11 +72,25 @@ export async function* parseSseStream(
 export interface ChatStreamMeta {
   type: "meta";
   conversation_id: string;
+  agent?: boolean;
+  rag?: boolean;
 }
 
 export interface ChatStreamDelta {
   type: "delta";
   content: string;
+}
+
+export interface ChatStreamStep {
+  type: "step";
+  step_index: number;
+  thought: string;
+  action_raw: string;
+  tool_name: string | null;
+  tool_args: Record<string, unknown> | null;
+  observation: unknown | null;
+  error: string | null;
+  latency_ms: number;
 }
 
 export interface ChatStreamDone {
@@ -91,6 +105,7 @@ export interface ChatStreamError {
 export type ChatStreamEvent =
   | ChatStreamMeta
   | ChatStreamDelta
+  | ChatStreamStep
   | ChatStreamDone
   | ChatStreamError;
 
@@ -174,7 +189,47 @@ export async function* streamChat(options: {
     if (typeValue === "meta") {
       const id = (parsed as { conversation_id?: unknown }).conversation_id;
       if (typeof id === "string") {
-        yield { type: "meta", conversation_id: id };
+        const agent = (parsed as { agent?: unknown }).agent;
+        const rag = (parsed as { rag?: unknown }).rag;
+        yield {
+          type: "meta",
+          conversation_id: id,
+          agent: typeof agent === "boolean" ? agent : undefined,
+          rag: typeof rag === "boolean" ? rag : undefined,
+        };
+      }
+      continue;
+    }
+
+    if (typeValue === "step") {
+      const stepIndex = (parsed as { step_index?: unknown }).step_index;
+      const thought = (parsed as { thought?: unknown }).thought;
+      const actionRaw = (parsed as { action_raw?: unknown }).action_raw;
+      const toolName = (parsed as { tool_name?: unknown }).tool_name;
+      const toolArgs = (parsed as { tool_args?: unknown }).tool_args;
+      const observation = (parsed as { observation?: unknown }).observation;
+      const error = (parsed as { error?: unknown }).error;
+      const latencyMs = (parsed as { latency_ms?: unknown }).latency_ms;
+
+      if (
+        typeof stepIndex === "number" &&
+        typeof thought === "string" &&
+        typeof actionRaw === "string" &&
+        (typeof toolName === "string" || toolName === null) &&
+        (typeof toolArgs === "object" || toolArgs === null) &&
+        typeof latencyMs === "number"
+      ) {
+        yield {
+          type: "step",
+          step_index: stepIndex,
+          thought,
+          action_raw: actionRaw,
+          tool_name: toolName,
+          tool_args: (toolArgs ?? null) as Record<string, unknown> | null,
+          observation: observation ?? null,
+          error: typeof error === "string" ? error : null,
+          latency_ms: latencyMs,
+        };
       }
       continue;
     }
