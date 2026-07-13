@@ -13,6 +13,7 @@
 - 7. 安全边界（危险操作、人类确认、隔离执行）
 - 8. 可观测性（trace、日志字段、后续落库）
 - 9. 与 RAG 的关系（search_docs）
+- 10. 端到端 Demo（写 FastAPI endpoint + 执行测试）
 
 ---
 
@@ -191,3 +192,69 @@ Action: final: 这里是最终答案……
 2) LLM 基于证据生成答案（并带 citations）
 3) 如果需要验证，再调用 `execute_code`
 
+---
+
+## 10. 端到端 Demo（写 FastAPI endpoint + 执行测试）
+
+目标：演示一次完整闭环——Agent 生成 FastAPI 代码 → 在沙箱中执行测试 → 基于真实 stdout/stderr 给出最终报告。
+
+### 10.1 前置条件
+
+1) 配置 LLM（`backend/.env`）：
+
+```bash
+LLM_PROVIDER=deepseek
+LLM_API_KEY=sk-xxx
+LLM_MODEL=deepseek-chat
+```
+
+2) 让沙箱镜像包含 FastAPI（推荐把 sandbox 指向 backend 镜像）：
+
+```bash
+# 构建 backend 镜像（默认 tag 通常为 devassist-backend）
+docker compose build backend
+```
+
+在 `backend/.env` 里设置：
+
+```bash
+SANDBOX_IMAGE=devassist-backend
+```
+
+说明：
+
+- `python:3.12-slim` 默认不包含 fastapi，直接在沙箱里 `import fastapi` 会失败。
+- 这里用 backend 镜像作为 sandbox 镜像，是为了让“写 FastAPI endpoint + 测试它”可复现。
+
+3) 确保 execute_code 能访问 Docker：
+
+- 在宿主机直接运行 backend（推荐用于本地开发）
+- 或在容器内运行时挂载 `/var/run/docker.sock`（仅用于本地调试场景）
+
+### 10.2 一键脚本（推荐）
+
+脚本位置：`backend/scripts/agent_e2e_demo.py`
+
+```bash
+python backend/scripts/agent_e2e_demo.py --show-steps
+```
+
+你会看到两部分输出：
+
+- FINAL ANSWER：Agent 的最终报告（包含代码与结论）
+- STEPS：每一步的 Thought/Action/Observation（包含 execute_code 的真实 stdout/stderr）
+
+### 10.3 用聊天 UI 触发（可选）
+
+在 Chat 页面输入以下 Prompt（英文更稳定）：
+
+```text
+Write a minimal FastAPI app with GET /sum (a:int, b:int) -> {"sum": a+b}.
+Write tests using fastapi.testclient.TestClient with plain asserts.
+You MUST call execute_code to run the tests, and only finish after you see ALL_TESTS_PASSED with exit_code==0.
+```
+
+观察点：
+
+- 推理过程中会出现 `step` 事件（Thought/Action/Tool Inputs/Observation）
+- 当工具调用为 `execute_code` 时，Observation 应包含 `ALL_TESTS_PASSED`
