@@ -2,72 +2,32 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { AgentStepBubble } from "@/components/chat/AgentStepBubble";
 import { MessageBubble } from "@/components/chat/MessageBubble";
-import { ChatStreamStep, streamChat } from "@/lib/streaming";
+import type { ChatStreamStep } from "@/lib/streaming";
+import { streamChat } from "@/lib/streaming";
 
 export interface ChatAppProps {
   apiUrl: string;
 }
 
-export interface ChatMessage {
+export interface ChatTextMessage {
   id: string;
+  kind: "text";
   role: "system" | "user" | "assistant";
   content: string;
 }
 
-function makeId(): string {
-  return crypto.randomUUID();
+export interface ChatStepMessage {
+  id: string;
+  kind: "step";
+  step: ChatStreamStep;
 }
 
-function formatAgentStep(step: ChatStreamStep): string {
-  const parts: string[] = [];
-  parts.push(`### Agent Step ${step.step_index}`);
-  if (step.thought.trim().length > 0) {
-    parts.push("");
-    parts.push("**Thought**");
-    parts.push(step.thought);
-  }
+export type ChatMessage = ChatTextMessage | ChatStepMessage;
 
-  if (step.action_raw.trim().length > 0) {
-    parts.push("");
-    parts.push("**Action**");
-    parts.push(step.action_raw);
-  }
-
-  if (step.tool_name) {
-    parts.push("");
-    parts.push(`**Tool**: ${step.tool_name}`);
-  }
-
-  if (step.tool_args) {
-    parts.push("");
-    parts.push("**Tool Args**");
-    parts.push("```json");
-    parts.push(JSON.stringify(step.tool_args, null, 2));
-    parts.push("```");
-  }
-
-  if (step.observation !== null && step.observation !== undefined) {
-    parts.push("");
-    parts.push("**Observation**");
-    const obs =
-      typeof step.observation === "string"
-        ? step.observation
-        : JSON.stringify(step.observation, null, 2);
-    parts.push("```json");
-    parts.push(obs.length > 4000 ? `${obs.slice(0, 4000)}\n...<truncated>` : obs);
-    parts.push("```");
-  }
-
-  if (step.error) {
-    parts.push("");
-    parts.push("**Error**");
-    parts.push(step.error);
-  }
-
-  parts.push("");
-  parts.push(`latency_ms: ${step.latency_ms}`);
-  return parts.join("\n");
+function makeId(): string {
+  return crypto.randomUUID();
 }
 
 export interface ToastState {
@@ -125,12 +85,19 @@ export function ChatApp(props: ChatAppProps) {
   >("idle");
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [streamMode, setStreamMode] = useState<{
+    agent: boolean;
+    rag: boolean;
+  } | null>(null);
 
   const canSend = status !== "streaming" && input.trim().length > 0;
   const isEmpty = messages.length === 0;
   const history = useMemo(() => {
     return messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
+      .filter(
+        (m): m is ChatTextMessage =>
+          m.kind === "text" && (m.role === "user" || m.role === "assistant"),
+      )
       .map((m) => ({ role: m.role, content: m.content }));
   }, [messages]);
 
@@ -152,6 +119,7 @@ export function ChatApp(props: ChatAppProps) {
 
     setError(null);
     setStatus("streaming");
+    setStreamMode(null);
 
     const userText = input.trim();
     setInput("");
@@ -161,8 +129,8 @@ export function ChatApp(props: ChatAppProps) {
 
     setMessages((prev) => [
       ...prev,
-      { id: userMessageId, role: "user", content: userText },
-      { id: assistantMessageId, role: "assistant", content: "" },
+      { id: userMessageId, kind: "text", role: "user", content: userText },
+      { id: assistantMessageId, kind: "text", role: "assistant", content: "" },
     ]);
 
     try {
@@ -175,18 +143,24 @@ export function ChatApp(props: ChatAppProps) {
       })) {
         if (ev.type === "meta") {
           setConversationId(ev.conversation_id);
+          setStreamMode({
+            agent: ev.agent === true,
+            rag: ev.rag === true,
+          });
           continue;
         }
 
         if (ev.type === "step") {
-          const stepMessage: ChatMessage = {
+          const stepMessage: ChatStepMessage = {
             id: makeId(),
-            role: "system",
-            content: formatAgentStep(ev),
+            kind: "step",
+            step: ev,
           };
 
           setMessages((prev) => {
-            const index = prev.findIndex((m) => m.id === assistantMessageId);
+            const index = prev.findIndex(
+              (m) => m.kind === "text" && m.id === assistantMessageId,
+            );
             if (index < 0) {
               return [...prev, stepMessage];
             }
@@ -200,7 +174,7 @@ export function ChatApp(props: ChatAppProps) {
         if (ev.type === "delta") {
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === assistantMessageId
+              m.kind === "text" && m.id === assistantMessageId
                 ? { ...m, content: m.content + ev.content }
                 : m,
             ),
@@ -257,10 +231,17 @@ export function ChatApp(props: ChatAppProps) {
     void send();
   }
 
+  const lastMessage = messages.at(-1);
   const showThinking =
     status === "streaming" &&
-    messages.at(-1)?.role === "assistant" &&
-    (messages.at(-1)?.content ?? "").length === 0;
+    lastMessage?.kind === "text" &&
+    lastMessage.role === "assistant" &&
+    lastMessage.content.length === 0;
+
+  const stepCount = useMemo(
+    () => messages.filter((m) => m.kind === "step").length,
+    [messages],
+  );
 
   return (
     <div className="relative flex h-[75vh] flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-zinc-200 sm:h-[80vh]">
@@ -270,6 +251,23 @@ export function ChatApp(props: ChatAppProps) {
           <div className="text-xs text-zinc-500">
             {conversationId ? `conversation_id: ${conversationId}` : "未建立会话"}
           </div>
+          {streamMode?.agent || streamMode?.rag ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+              {streamMode.agent ? (
+                <span className="rounded bg-violet-100 px-2 py-0.5 text-violet-800">
+                  Agent
+                </span>
+              ) : null}
+              {streamMode.rag ? (
+                <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-900">
+                  RAG
+                </span>
+              ) : null}
+              {streamMode.agent ? (
+                <span className="text-zinc-500">steps: {stepCount}</span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <div className="flex items-center gap-2 text-xs text-zinc-600">
           <span className="flex items-center gap-2">
@@ -310,13 +308,18 @@ export function ChatApp(props: ChatAppProps) {
           </div>
         ) : (
           messages.map((m) => (
-            <MessageBubble
-              key={m.id}
-              role={m.role}
-              content={m.content}
-              apiUrl={props.apiUrl}
-              conversationId={conversationId}
-            />
+            <div key={m.id}>
+              {m.kind === "step" ? (
+                <AgentStepBubble step={m.step} />
+              ) : (
+                <MessageBubble
+                  role={m.role}
+                  content={m.content}
+                  apiUrl={props.apiUrl}
+                  conversationId={conversationId}
+                />
+              )}
+            </div>
           ))
         )}
         {showThinking ? (
