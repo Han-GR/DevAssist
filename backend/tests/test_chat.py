@@ -131,6 +131,45 @@ def test_chat_returns_reply() -> None:
     assert body["reply"] == "echo: hello"
 
 
+def test_chat_can_route_to_agent_non_stream(monkeypatch) -> None:
+    client = TestClient(main_module.app)
+    fake = _FakeLLMClient()
+    chat_module.llm_client = fake
+
+    async def _fake_run_agent_for_chat(*args, **kwargs) -> str:
+        return "agent: ok"
+
+    monkeypatch.setattr(chat_module, "_run_agent_for_chat", _fake_run_agent_for_chat)
+
+    resp = client.post("/chat", json={"message": "hello", "use_agent": True})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body.get("conversation_id")
+    assert body["reply"] == "agent: ok"
+    assert fake.last_messages == []
+
+
+def test_chat_can_route_to_agent_stream(monkeypatch) -> None:
+    client = TestClient(main_module.app)
+    fake = _FakeLLMClient()
+    chat_module.llm_client = fake
+
+    async def _fake_run_agent_for_chat(*args, **kwargs) -> str:
+        return "agent: ok"
+
+    monkeypatch.setattr(chat_module, "_run_agent_for_chat", _fake_run_agent_for_chat)
+
+    resp = client.post("/chat?stream=true", json={"message": "hello", "use_agent": True})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    assert resp.headers.get("x-request-id")
+
+    body = resp.text
+    assert "\"type\": \"meta\"" in body
+    assert "\"agent\": true" in body
+    assert "agent: ok" in body
+
+
 def test_chat_passes_history_to_llm() -> None:
     client = TestClient(main_module.app)
     fake = _FakeLLMClient()
