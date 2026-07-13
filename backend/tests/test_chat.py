@@ -154,10 +154,35 @@ def test_chat_can_route_to_agent_stream(monkeypatch) -> None:
     fake = _FakeLLMClient()
     chat_module.llm_client = fake
 
-    async def _fake_run_agent_for_chat(*args, **kwargs) -> str:
-        return "agent: ok"
+    async def _fake_build_history(*args, **kwargs):
+        return []
 
-    monkeypatch.setattr(chat_module, "_run_agent_for_chat", _fake_run_agent_for_chat)
+    async def _fake_add_turn(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(chat_module.agent_memory, "build_history", _fake_build_history)
+    monkeypatch.setattr(chat_module.agent_memory, "add_turn", _fake_add_turn)
+
+    class _FakeAgent:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def run(self, *, user_input: str, trace=None, history_messages=None):
+            recorder = trace
+            started = recorder.start_step(step_index=0)
+            recorder.finish_step(
+                step_index=0,
+                started_at_ms=started,
+                thought="think",
+                action_raw="tool:search_docs",
+                tool_name="search_docs",
+                tool_args={"query": "x"},
+                observation={"results": []},
+                error=None,
+            )
+            return "agent: ok", []
+
+    monkeypatch.setattr(chat_module, "ReActAgent", _FakeAgent)
 
     resp = client.post("/chat?stream=true", json={"message": "hello", "use_agent": True})
     assert resp.status_code == 200
@@ -167,6 +192,8 @@ def test_chat_can_route_to_agent_stream(monkeypatch) -> None:
     body = resp.text
     assert "\"type\": \"meta\"" in body
     assert "\"agent\": true" in body
+    assert "\"type\": \"step\"" in body
+    assert "\"tool_name\": \"search_docs\"" in body
     assert "agent: ok" in body
 
 
