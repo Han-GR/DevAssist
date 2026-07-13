@@ -28,6 +28,10 @@ from app.core.streaming import sse_event
 from app.db.models import Conversation, Message
 from app.db.session import SessionLocal
 import app.rag.generator as rag_generator
+from app.agent.builtin_tools import create_execute_code_tool, create_search_docs_tool
+from app.agent.memory import agent_memory
+from app.agent.react import ReActAgent
+from app.agent.tools import ToolRegistry
 
 
 settings = get_settings()
@@ -59,6 +63,7 @@ class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessage] = []
     use_rag: bool | None = None
+    use_agent: bool | None = None
     collection_name: str | None = None
 
 
@@ -118,6 +123,121 @@ def _should_use_rag(*, message: str, force: bool | None) -> bool:
         "embedding",
     ]
     return any(t in lowered for t in triggers)
+
+
+def _should_use_agent(*, message: str, force: bool | None = None) -> bool:
+    """
+    判断是否将请求路由到 Agent（ReAct 模式）。
+
+    Args:
+        message (str): 用户输入。
+        force (bool | None): 显式开关；不为 None 时直接按该值执行。
+
+    Returns:
+        bool: True 表示走 Agent，False 表示走普通 chat/RAG。
+
+    Notes/Examples:
+        策略：检测"需要多步推理/代码执行/工具调用"的关键词。
+        这是启发式规则，不是 LLM 分类，保持低延迟。
+    """
+    if force is not None:
+        return force
+
+    text = message.strip()
+    if not text:
+        return False
+
+    lowered = text.lower()
+    # 明确要求执行代码
+    code_triggers = [
+        "写一个", "写个", "帮我写", "实现一个", "实现一下",
+        "run", "execute", "运行", "执行",
+        "代码", "脚本", "函数", "class ", "def ",
+        "write a", "write me", "implement",
+    ]
+    # 明确要求多步推理/搜索+执行
+    agent_triggers = [
+        "搜索并", "查找并", "先搜索", "先查找",
+        "search and", "find and then",
+        "step by step", "一步一步",
+        "验证", "测试一下", "帮我验证",
+    ]
+    all_triggers = code_triggers + agent_triggers
+    return any(t in lowered for t in all_triggers)
+
+
+def _build_agent_registry() -> ToolRegistry:
+    """
+    构建 Agent 默认工具注册表（search_docs + execute_code）。
+
+    Args:
+        None
+
+    Returns:
+        ToolRegistry: 注册了默认工具的注册表。
+
+    Raises:
+        None
+    """
+    registry = ToolRegistry()
+    registry.register(create_search_docs_tool())
+    registry.register(create_execute_code_tool())
+    return registry
+
+
+async def _run_agent_for_chat(
+    *,
+    llm: LLMClient,
+    message: str,
+    conversation_id: UUID,
+) -> str:
+    """
+    在 /chat 上下文中运行 ReActAgent，返回最终答案文本。
+
+    Args:
+        llm (LLMClient): LLM 客户端。
+        message (str): 用户输入。
+        conversation_id (UUID): 会话 ID（用于短期记忆注入）。
+
+    Returns:
+        str: Agent 最终答案。
+
+    Raises:
+        AppError: Agent 达到迭代上限或其他 Agent 错误时抛出。
+        Exception: 其他底层异常原样抛出。
+
+    Notes/Examples:
+        - 注入短期记忆历史，保持多轮上下文
+        - 成功后把本轮写入短期记忆
+    """
+    import structlog as _structlog  # noqa: PLC0415
+    _logger = _structlog.get_logger()
+
+    registry = _build_agent_registry()
+    agent = ReActAgent(llm=llm, tools=registry)
+
+    history_messages = await agent_memory.build_history(
+        conversation_id=conversation_id,
+        query=message,
+    )
+
+    answer, _ = await agent.run(
+        user_input=message,
+        history_messages=history_messages if history_messages else None,
+    )
+
+    # 写入记忆（短期溢出时自动摘要进长时记忆）
+    try:
+        await agent_memory.add_turn(
+            conversation_id=conversation_id,
+            user=message,
+            assistant=answer,
+            llm=llm,
+        )
+    except Exception as exc:
+        _logger.warning("chat_agent_memory_write_failed", error=str(exc))
+
+    return answer
 
 
 def _format_rag_reply(*, answer: rag_generator.RAGAnswer) -> str:
@@ -330,7 +450,52 @@ async def chat(
         messages = [{"role": m.role, "content": m.content} for m in payload.history]
     messages.append({"role": "user", "content": payload.message})
 
+    use_agent = _should_use_agent(message=payload.message, force=payload.use_agent)
     use_rag = _should_use_rag(message=payload.message, force=payload.use_rag)
+
+    if use_agent:
+        if stream:
+            await persist_user_message_to_db(conversation_id, payload.message)
+            reply_text = await _run_agent_for_chat(
+                llm=llm_client,
+                message=payload.message,
+                conversation_id=conversation_id,
+            )
+            parts = _split_to_stream_parts(text=reply_text)
+
+            async def _agent_generator() -> AsyncGenerator[str, None]:
+                yield sse_event(
+                    data={
+                        "type": "meta",
+                        "conversation_id": str(conversation_id),
+                        "agent": True,
+                    }
+                )
+                for p in parts:
+                    if p:
+                        yield sse_event(data={"type": "delta", "content": p})
+                yield sse_event(data={"type": "done"}, event="done")
+
+            async def _persist_after_agent_stream() -> AsyncGenerator[str, None]:
+                try:
+                    async for item in _agent_generator():
+                        yield item
+                finally:
+                    if reply_text:
+                        await persist_assistant_message_to_db(conversation_id, reply_text)
+
+            return StreamingResponse(
+                _persist_after_agent_stream(),
+                media_type="text/event-stream",
+            )
+
+        reply_text = await _run_agent_for_chat(
+            llm=llm_client,
+            message=payload.message,
+            conversation_id=conversation_id,
+        )
+        await persist_turn_to_db(conversation_id, payload.message, reply_text)
+        return ChatResponse(conversation_id=conversation_id, reply=reply_text)
 
     if use_rag:
         if stream:
