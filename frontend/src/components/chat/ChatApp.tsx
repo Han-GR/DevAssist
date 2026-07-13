@@ -310,14 +310,30 @@ export function ChatApp(props: ChatAppProps) {
           </div>
         ) : (
           messages.map((m) => (
-            <MessageBubble key={m.id} role={m.role} content={m.content} />
+            <MessageBubble
+              key={m.id}
+              role={m.role}
+              content={m.content}
+              apiUrl={props.apiUrl}
+              conversationId={conversationId}
+            />
           ))
         )}
         {showThinking ? (
-          <MessageBubble role="assistant" content="正在思考..." />
+          <MessageBubble
+            role="assistant"
+            content="正在思考..."
+            apiUrl={props.apiUrl}
+            conversationId={conversationId}
+          />
         ) : null}
         {error ? (
-          <MessageBubble role="system" content={`错误：${error}`} />
+          <MessageBubble
+            role="system"
+            content={`错误：${error}`}
+            apiUrl={props.apiUrl}
+            conversationId={conversationId}
+          />
         ) : null}
         <div ref={bottomRef} />
       </div>
