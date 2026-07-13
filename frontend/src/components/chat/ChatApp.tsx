@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { MessageBubble } from "@/components/chat/MessageBubble";
-import { streamChat } from "@/lib/streaming";
+import { ChatStreamStep, streamChat } from "@/lib/streaming";
 
 export interface ChatAppProps {
   apiUrl: string;
@@ -17,6 +17,57 @@ export interface ChatMessage {
 
 function makeId(): string {
   return crypto.randomUUID();
+}
+
+function formatAgentStep(step: ChatStreamStep): string {
+  const parts: string[] = [];
+  parts.push(`### Agent Step ${step.step_index}`);
+  if (step.thought.trim().length > 0) {
+    parts.push("");
+    parts.push("**Thought**");
+    parts.push(step.thought);
+  }
+
+  if (step.action_raw.trim().length > 0) {
+    parts.push("");
+    parts.push("**Action**");
+    parts.push(step.action_raw);
+  }
+
+  if (step.tool_name) {
+    parts.push("");
+    parts.push(`**Tool**: ${step.tool_name}`);
+  }
+
+  if (step.tool_args) {
+    parts.push("");
+    parts.push("**Tool Args**");
+    parts.push("```json");
+    parts.push(JSON.stringify(step.tool_args, null, 2));
+    parts.push("```");
+  }
+
+  if (step.observation !== null && step.observation !== undefined) {
+    parts.push("");
+    parts.push("**Observation**");
+    const obs =
+      typeof step.observation === "string"
+        ? step.observation
+        : JSON.stringify(step.observation, null, 2);
+    parts.push("```json");
+    parts.push(obs.length > 4000 ? `${obs.slice(0, 4000)}\n...<truncated>` : obs);
+    parts.push("```");
+  }
+
+  if (step.error) {
+    parts.push("");
+    parts.push("**Error**");
+    parts.push(step.error);
+  }
+
+  parts.push("");
+  parts.push(`latency_ms: ${step.latency_ms}`);
+  return parts.join("\n");
 }
 
 export interface ToastState {
@@ -124,6 +175,25 @@ export function ChatApp(props: ChatAppProps) {
       })) {
         if (ev.type === "meta") {
           setConversationId(ev.conversation_id);
+          continue;
+        }
+
+        if (ev.type === "step") {
+          const stepMessage: ChatMessage = {
+            id: makeId(),
+            role: "system",
+            content: formatAgentStep(ev),
+          };
+
+          setMessages((prev) => {
+            const index = prev.findIndex((m) => m.id === assistantMessageId);
+            if (index < 0) {
+              return [...prev, stepMessage];
+            }
+            const next = [...prev];
+            next.splice(index, 0, stepMessage);
+            return next;
+          });
           continue;
         }
 
