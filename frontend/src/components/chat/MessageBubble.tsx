@@ -3,9 +3,13 @@ import type { Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
+import { CodeBlock } from "@/components/code/CodeBlock";
+
 export interface MessageBubbleProps {
   role: "system" | "user" | "assistant";
   content: string;
+  apiUrl?: string;
+  conversationId?: string | null;
 }
 
 function getBubbleStyle(role: MessageBubbleProps["role"]): {
@@ -81,17 +85,20 @@ export function MessageBubble(props: MessageBubbleProps) {
         );
       }
 
+      const match = /language-(\w+)/.exec(className);
+      const language = match?.[1] ?? "text";
+      const code = String(children ?? "").replace(/\n$/, "");
+
       return (
-        <code className={["font-mono", className].filter(Boolean).join(" ")}>
-          {children}
-        </code>
+        <CodeBlock
+          code={code}
+          language={language}
+          apiUrl={props.apiUrl}
+          conversationId={props.conversationId}
+        />
       );
     },
-    pre: ({ children }) => (
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-950 p-3 text-sm text-zinc-50">
-        {children}
-      </pre>
-    ),
+    pre: ({ children }) => <>{children}</>,
   };
 
   return (
