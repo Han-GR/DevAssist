@@ -22,6 +22,12 @@ Notes:
 - Use `python3` explicitly (some environments do not provide a `python` alias).
 - Training is expected to run on Linux + NVIDIA GPU; macOS/CPU is only for sanity checks.
 
+## Model Card
+
+Before publishing or comparing runs, update the model card with the chosen dataset snapshot, hyperparameters, and headline metrics:
+
+- [MODEL_CARD.md](file:///Users/hanhan/Projects/PersonalOpenSource/Python/DevAssist/backend/app/finetune/MODEL_CARD.md)
+
 ## File Format
 
 - Encoding: UTF-8
