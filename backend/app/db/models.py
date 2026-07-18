@@ -1,14 +1,18 @@
 """
 数据库模型定义（SQLAlchemy ORM）。
 
-目前只做聊天持久化的最小集合：
+当前包含聊天、Agent trace 与微调实验记录等表：
 - conversations：会话元信息
 - messages：会话中的消息（user/assistant/system）
+- documents：文档 ingestion 元信息
+- agent_traces：Agent 运行轨迹
+- finetune_runs：微调实验记录
 """
 
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
@@ -125,3 +129,17 @@ class AgentTrace(TimestampMixin, Base):
     steps: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False, default=list)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class FinetuneRun(TimestampMixin, Base):
+    """
+    微调实验记录表：用于追踪一次训练/对齐实验的配置、状态与指标。
+    """
+
+    __tablename__ = "finetune_runs"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    base_model: Mapped[str] = mapped_column(String(200), nullable=False)
+    lora_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="created")
