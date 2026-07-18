@@ -232,3 +232,12 @@ Generate pairs via LLM (best-effort, based on `finetune_eval` rubric):
 cd backend
 python scripts/generate_dpo_pairs.py --evalset data/datasets/finetune_eval.sample.jsonl --output data/datasets/dpo_pairs.jsonl --count 300
 ```
+
+## DPO Training (LoRA)
+
+Run DPO training:
+
+```bash
+cd backend
+python scripts/train_dpo.py --model Qwen/Qwen2.5-7B-Instruct --pairs data/datasets/dpo_pairs.jsonl --output data/models/qwen2.5-7b-dpo-lora
+```
