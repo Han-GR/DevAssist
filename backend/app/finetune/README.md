@@ -204,3 +204,31 @@ python scripts/run_sft_500.py --report-to wandb --run-name sft-500
 ## Notes
 
 - DPO (preference) data will be specified separately when we reach the DPO stage.
+
+## DPO Dataset (Preference Pairs)
+
+Recommended file:
+
+- `data/datasets/dpo_pairs.jsonl`
+
+Format (JSONL, one object per line):
+
+```json
+{
+  "prompt": "system:\\n...\\n\\nuser:\\n...",
+  "chosen": "better answer",
+  "rejected": "worse answer",
+  "meta": {
+    "case_id": "eval-0001",
+    "category": "normal",
+    "reason": "rubric"
+  }
+}
+```
+
+Generate pairs via LLM (best-effort, based on `finetune_eval` rubric):
+
+```bash
+cd backend
+python scripts/generate_dpo_pairs.py --evalset data/datasets/finetune_eval.sample.jsonl --output data/datasets/dpo_pairs.jsonl --count 300
+```
