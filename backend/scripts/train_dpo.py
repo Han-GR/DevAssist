@@ -7,6 +7,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.finetune.dpo import DPOTrainConfig, train_dpo
+from app.finetune.versioning import build_model_version_spec
 
 
 def main() -> int:
@@ -27,6 +28,8 @@ def main() -> int:
     parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-7B-Instruct")
     parser.add_argument("--pairs", type=Path, default=Path("data/datasets/dpo_pairs.jsonl"))
     parser.add_argument("--output", type=Path, default=Path("data/models/qwen2.5-7b-dpo-lora"))
+    parser.add_argument("--versioned-output", action="store_true")
+    parser.add_argument("--output-root", type=Path, default=Path("data/models"))
     parser.add_argument("--init-adapter", type=Path, default=None, help="Optional LoRA adapter path to continue from.")
     parser.add_argument("--max-seq-len", type=int, default=2048)
     parser.add_argument("--batch-size", type=int, default=1)
@@ -45,10 +48,20 @@ def main() -> int:
 
     report_to = tuple([x.strip() for x in str(args.report_to).split(",") if x.strip()])
 
+    output_dir = Path(args.output)
+    if bool(args.versioned_output):
+        repo_root = Path(__file__).resolve().parents[1]
+        spec = build_model_version_spec(
+            base_model=str(args.model),
+            variant="dpo-lora",
+            repo_root=repo_root,
+        )
+        output_dir = Path(args.output_root) / f"{spec.base_model}-{spec.variant}-{spec.date}-{spec.commit}"
+
     cfg = DPOTrainConfig(
         model_name_or_path=str(args.model),
         dpo_pairs_path=Path(args.pairs),
-        output_dir=Path(args.output),
+        output_dir=output_dir,
         init_adapter_path=Path(args.init_adapter) if args.init_adapter else None,
         max_seq_length=int(args.max_seq_len),
         per_device_train_batch_size=int(args.batch_size),

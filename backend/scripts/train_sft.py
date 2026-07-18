@@ -7,6 +7,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.finetune.sft import SFTTrainConfig, train_sft
+from app.finetune.versioning import build_model_version_spec
 
 
 def main() -> int:
@@ -28,6 +29,8 @@ def main() -> int:
     parser.add_argument("--train", type=Path, default=Path("data/datasets/sft_train.jsonl"))
     parser.add_argument("--eval", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=Path("data/models/qwen2.5-7b-lora"))
+    parser.add_argument("--versioned-output", action="store_true")
+    parser.add_argument("--output-root", type=Path, default=Path("data/models"))
     parser.add_argument("--max-seq-len", type=int, default=2048)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--eval-batch-size", type=int, default=1)
@@ -40,11 +43,21 @@ def main() -> int:
     parser.add_argument("--lora-dropout", type=float, default=0.05)
     args = parser.parse_args()
 
+    output_dir = Path(args.output)
+    if bool(args.versioned_output):
+        repo_root = Path(__file__).resolve().parents[1]
+        spec = build_model_version_spec(
+            base_model=str(args.model),
+            variant="lora",
+            repo_root=repo_root,
+        )
+        output_dir = Path(args.output_root) / f"{spec.base_model}-{spec.variant}-{spec.date}-{spec.commit}"
+
     cfg = SFTTrainConfig(
         model_name_or_path=str(args.model),
         train_path=Path(args.train),
         eval_path=Path(args.eval) if args.eval else None,
-        output_dir=Path(args.output),
+        output_dir=output_dir,
         max_seq_length=int(args.max_seq_len),
         per_device_train_batch_size=int(args.batch_size),
         per_device_eval_batch_size=int(args.eval_batch_size),
@@ -64,4 +77,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
