@@ -186,7 +186,7 @@ async def generate_synthetic_sft_dataset(
     Notes:
         - 本函数依赖运行环境已配置 LLM 相关环境变量（provider/api_key/model）。
         - 为避免写出大文件污染仓库，建议输出到 data/datasets/，并按 .gitignore 管理。
-        - Day63 的清洗脚本可以对生成结果做去重/过滤。
+        - 清洗脚本可以对生成结果做去重/过滤。
     """
 
     inst = (instruction or "").strip()

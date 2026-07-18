@@ -125,7 +125,7 @@ def score_sample(*, instruction: str, input: str, output: str) -> float:
 
     Notes:
         - 这是“轻量可解释”的启发式打分，用于快速过滤明显低质样本。
-        - Day63 的目标不是完美打分，而是提供一个可持续迭代的默认规则集。
+        - 目标不是完美打分，而是提供一个可持续迭代的默认规则集。
     """
 
     inst = (instruction or "").strip()

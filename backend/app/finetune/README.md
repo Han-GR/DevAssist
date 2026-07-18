@@ -125,7 +125,7 @@ Notes:
 - `rubric.must_include`: expected key points (lightweight)
 - This eval set is designed for rule-based checks and later LLM-as-judge evaluation.
 
-## Training Environment Setup (Day 66)
+## Training Environment Setup
 
 DevAssist keeps runtime dependencies and training dependencies separated.
 
@@ -146,6 +146,26 @@ Notes:
 
 - Local macOS can run CPU-only for quick sanity checks, but real fine-tuning is recommended on Linux + NVIDIA GPU.
 - If `cuda_available=false`, you can still run small CPU tests, but training speed will be very slow.
+
+## Baseline Inference Check
+
+Before training, run a **baseline inference** to verify:
+
+- model weights can be loaded
+- tokenizer works
+- generation works end-to-end
+
+Recommended command:
+
+```bash
+cd backend
+python scripts/baseline_infer.py --model Qwen/Qwen2.5-7B-Instruct --prompt "Explain what SSE is in one paragraph."
+```
+
+Tips:
+
+- CPU-only runs are for sanity checks only.
+- For GPU runs, ensure CUDA is available and `torch` is installed with CUDA support.
 
 ## Notes
 

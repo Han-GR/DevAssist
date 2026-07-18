@@ -66,7 +66,6 @@ def build_sft_samples_from_messages(
     Notes:
         - 仅处理 role 为 user/assistant 的消息。
         - 如果 user 后面没有紧跟 assistant，会跳过该 user。
-        - 不做清洗与脱敏，清洗在 Day63 执行。
     """
 
     inst = (instruction or "").strip()
@@ -139,7 +138,6 @@ async def export_sft_jsonl_from_db(
 
     Notes:
         - 为了便于追溯与调试，默认 include_meta=true。
-        - 输出为“原始导出”，不做清洗与脱敏，清洗在 Day63 执行。
     """
 
     inst = (instruction or "").strip()
