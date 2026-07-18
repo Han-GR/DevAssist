@@ -248,3 +248,12 @@ Continue DPO from an existing SFT LoRA adapter:
 cd backend
 python scripts/train_dpo.py --model Qwen/Qwen2.5-7B-Instruct --init-adapter data/models/qwen2.5-7b-lora --pairs data/datasets/dpo_pairs.jsonl --output data/models/qwen2.5-7b-dpo-lora
 ```
+
+## Three-way Comparison (Base vs SFT vs DPO)
+
+Run a three-way comparison on the finetune evalset:
+
+```bash
+cd backend
+python scripts/eval_base_sft_dpo.py --base-model Qwen/Qwen2.5-7B-Instruct --sft-adapter data/models/qwen2.5-7b-lora --dpo-adapter data/models/qwen2.5-7b-dpo-lora
+```
