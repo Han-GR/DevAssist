@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from uuid import UUID
 
 
 @dataclass(frozen=True)
