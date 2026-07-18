@@ -305,3 +305,18 @@ Git policy:
 
 - snapshot contents are ignored by default to avoid committing large datasets
 - `manifest.json` is allowed (small, useful for audit)
+
+## Finetune Evaluation Pipeline
+
+Run multiple finetune evaluations and generate a single summary report (best-effort):
+
+```bash
+cd backend
+python scripts/finetune_eval_runner.py --sft-adapter data/models/qwen2.5-7b-lora --dpo-adapter data/models/qwen2.5-7b-dpo-lora --limit 50
+```
+
+The pipeline produces:
+
+- `data/eval_reports/finetune_sft_vs_base_report.md`
+- `data/eval_reports/finetune_three_way_report.md`
+- `data/eval_reports/finetune_eval_pipeline_report.md`
