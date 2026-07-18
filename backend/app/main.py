@@ -16,6 +16,7 @@ from uuid import uuid4
 from app.core.config import get_settings, setup_logging
 from app.core.errors import register_error_handlers
 from app.api.agent import router as agent_router
+from app.api.admin_evals import router as admin_evals_router
 from app.api.admin_traces import router as admin_traces_router
 from app.api.chat import router as chat_router
 from app.api.ingest import router as ingest_router
@@ -40,6 +41,7 @@ app.add_middleware(
 )
 register_error_handlers(app)
 app.include_router(agent_router)
+app.include_router(admin_evals_router)
 app.include_router(admin_traces_router)
 app.include_router(chat_router)
 app.include_router(ingest_router)
