@@ -183,6 +183,24 @@ cd backend
 python scripts/clean_sft.py --input data/datasets/sft_train.jsonl --output data/datasets/sft_train.cleaned.jsonl
 ```
 
+## Initial Training Run (500 samples)
+
+To get a quick signal, run a small experiment on 500 samples for 3 epochs:
+
+```bash
+cd backend
+python scripts/run_sft_500.py --train data/datasets/sft_train.cleaned.jsonl --epochs 3 --output data/models/qwen2.5-7b-lora-500
+```
+
+Logging/monitoring:
+
+- Use Transformers `report_to` to enable logging backends, e.g.:
+
+```bash
+cd backend
+python scripts/run_sft_500.py --report-to wandb --run-name sft-500
+```
+
 ## Notes
 
 - DPO (preference) data will be specified separately when we reach the DPO stage.
