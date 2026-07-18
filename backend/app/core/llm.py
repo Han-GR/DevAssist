@@ -92,6 +92,7 @@ class LLMClient:
         *,
         messages: list[dict[str, Any]],
         temperature: float,
+        model: str | None = None,
         stream: bool = False,
     ) -> Any:
         """
@@ -100,6 +101,7 @@ class LLMClient:
         Args:
             messages (list[dict[str, Any]]): OpenAI-style messages 列表（role/content）。
             temperature (float): 采样温度，越高越“发散”。
+            model (str | None): 可选，覆盖默认模型名（用于评测或临时切换）。
             stream (bool): 是否启用流式；为 True 时返回可迭代的 chunk 流。
 
         Returns:
@@ -114,10 +116,11 @@ class LLMClient:
             - 流式直接 async for chunk，取 chunk.choices[0].delta.content
         """
         start = time.perf_counter()
+        used_model = str(model) if model else self._model
         try:
             # 先按非流式做通
             response = await self._client.chat.completions.create(
-                model=self._model,
+                model=used_model,
                 messages=messages,
                 temperature=temperature,
                 stream=stream,
@@ -129,7 +132,7 @@ class LLMClient:
             self._logger.info(
                 "llm_call",
                 provider=self._provider,
-                model=self._model,
+                model=used_model,
                 stream=stream,
                 latency_ms=elapsed_ms,
                 prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
@@ -145,7 +148,7 @@ class LLMClient:
             self._logger.exception(
                 "llm_call",
                 provider=self._provider,
-                model=self._model,
+                model=used_model,
                 stream=stream,
                 latency_ms=elapsed_ms,
                 success=False,
