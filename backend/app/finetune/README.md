@@ -125,6 +125,28 @@ Notes:
 - `rubric.must_include`: expected key points (lightweight)
 - This eval set is designed for rule-based checks and later LLM-as-judge evaluation.
 
+## Training Environment Setup (Day 66)
+
+DevAssist keeps runtime dependencies and training dependencies separated.
+
+Install training dependencies (recommended to use `uv`):
+
+```bash
+cd backend
+uv pip install -r requirements-finetune.txt
+```
+
+Quick environment check:
+
+```bash
+python scripts/check_training_env.py
+```
+
+Notes:
+
+- Local macOS can run CPU-only for quick sanity checks, but real fine-tuning is recommended on Linux + NVIDIA GPU.
+- If `cuda_available=false`, you can still run small CPU tests, but training speed will be very slow.
+
 ## Notes
 
 - DPO (preference) data will be specified separately when we reach the DPO stage.
