@@ -27,6 +27,8 @@ class SFTTrainConfig:
     lora_dropout: float = 0.05
     target_modules: tuple[str, ...] = ("q_proj", "v_proj")
     trust_remote_code: bool = True
+    report_to: tuple[str, ...] = ()
+    run_name: str | None = None
 
 
 def _build_training_text(*, tokenizer: Any, instruction: str, input_text: str, output_text: str) -> str:
@@ -72,7 +74,7 @@ def train_sft(config: SFTTrainConfig) -> Path:
         Exception: Transformers/训练过程抛出的异常会原样向上抛出。
 
     Notes:
-        - 训练数据使用 Day61 定义的 SFT JSONL schema：instruction/input/output。
+        - 训练数据使用 SFT JSONL schema：instruction/input/output。
         - 该函数会延迟导入 torch/transformers/peft/trl，避免未安装训练依赖时 import 失败。
         - 默认只训练 LoRA adapter，不会覆盖 base model 权重。
     """
@@ -141,7 +143,8 @@ def train_sft(config: SFTTrainConfig) -> Path:
         eval_steps=int(config.eval_steps),
         evaluation_strategy="steps",
         save_strategy="steps",
-        report_to=[],
+        report_to=list(config.report_to) if config.report_to else [],
+        run_name=str(config.run_name) if config.run_name else None,
         seed=int(config.seed),
     )
 
@@ -162,4 +165,3 @@ def train_sft(config: SFTTrainConfig) -> Path:
     tokenizer.save_pretrained(str(config.output_dir))
 
     return config.output_dir
-
