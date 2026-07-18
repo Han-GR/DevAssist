@@ -201,6 +201,40 @@ cd backend
 python scripts/run_sft_500.py --report-to wandb --run-name sft-500
 ```
 
+## Hyperparameter Tuning (LoRA r / learning rate)
+
+When comparing LoRA settings, keep everything else fixed (dataset, epochs, batch size, prompt formatting), and only change:
+
+- `lora_r`
+- `learning_rate`
+
+Recommended sweep script (defaults to **dry-run**, prints commands only):
+
+```bash
+cd backend
+python scripts/sweep_sft_lora.py --base-model Qwen/Qwen2.5-7B-Instruct
+```
+
+Run the sweep with real execution (GPU environment recommended):
+
+```bash
+cd backend
+python scripts/sweep_sft_lora.py --execute --lora-rs 8,16,32 --lrs 5e-5,1e-4,2e-4
+```
+
+Outputs:
+
+- A manifest JSONL file (append-only):
+  - `data/datasets/sweeps/sft_lora_sweep.manifest.jsonl`
+- Per-run evaluation reports:
+  - `data/eval_reports/sweeps/.../finetune_eval_pipeline_report.md`
+
+How to pick a "best" config (pragmatic):
+
+- Primary metric: rubric `pass_rate` on `scope=all`
+- Tie-breakers: higher `avg_include_rate`, lower `violation_rate`
+- Always sanity-check a few samples manually (rubric is substring-based)
+
 ## Notes
 
 - DPO (preference) data will be specified separately when we reach the DPO stage.
