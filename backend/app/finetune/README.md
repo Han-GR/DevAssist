@@ -257,3 +257,28 @@ Run a three-way comparison on the finetune evalset:
 cd backend
 python scripts/eval_base_sft_dpo.py --base-model Qwen/Qwen2.5-7B-Instruct --sft-adapter data/models/qwen2.5-7b-lora --dpo-adapter data/models/qwen2.5-7b-dpo-lora
 ```
+
+## LLM-as-Judge Evaluation
+
+This evaluation generates answers using a target model (base or LoRA), then asks a separate judge model (via `LLMClient`) to score each answer.
+
+Evaluate the base model:
+
+```bash
+cd backend
+python scripts/judge_eval.py --base-model Qwen/Qwen2.5-7B-Instruct --limit 50 --output-json data/eval_reports/judge_report.base.json
+```
+
+Evaluate a LoRA adapter:
+
+```bash
+cd backend
+python scripts/judge_eval.py --base-model Qwen/Qwen2.5-7B-Instruct --adapter data/models/qwen2.5-7b-lora --limit 50 --output-json data/eval_reports/judge_report.lora.json
+```
+
+Use a specific judge provider/model:
+
+```bash
+cd backend
+python scripts/judge_eval.py --judge-provider deepseek --judge-model deepseek-chat --limit 50
+```
