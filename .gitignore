@@ -40,6 +40,8 @@ data/models/
 data/datasets/*.jsonl
 !data/datasets/*.sample.jsonl
 data/eval_reports/*.json
+data/datasets/snapshots/
+!data/datasets/snapshots/**/manifest.json
 
 # === Docker ===
 *.log
