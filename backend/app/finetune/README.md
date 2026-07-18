@@ -282,3 +282,26 @@ Use a specific judge provider/model:
 cd backend
 python scripts/judge_eval.py --judge-provider deepseek --judge-model deepseek-chat --limit 50
 ```
+
+## Dataset Snapshots
+
+For reproducibility, DevAssist supports a lightweight snapshot workflow:
+
+- copy selected dataset files into a snapshot directory
+- write a `manifest.json` that includes sha256 + non-empty line counts
+
+Create a snapshot:
+
+```bash
+cd backend
+python scripts/snapshot_datasets.py --label pre-clean
+```
+
+By default, snapshots are stored under:
+
+- `data/datasets/snapshots/{YYYYMMDD}-{commit}/`
+
+Git policy:
+
+- snapshot contents are ignored by default to avoid committing large datasets
+- `manifest.json` is allowed (small, useful for audit)
