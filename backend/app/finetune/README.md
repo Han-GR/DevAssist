@@ -167,6 +167,22 @@ Tips:
 - CPU-only runs are for sanity checks only.
 - For GPU runs, ensure CUDA is available and `torch` is installed with CUDA support.
 
+## SFT Training (LoRA)
+
+Run SFT training:
+
+```bash
+cd backend
+python scripts/train_sft.py --model Qwen/Qwen2.5-7B-Instruct --train data/datasets/sft_train.jsonl --output data/models/qwen2.5-7b-lora
+```
+
+After training, you can run cleaning first and retrain if needed:
+
+```bash
+cd backend
+python scripts/clean_sft.py --input data/datasets/sft_train.jsonl --output data/datasets/sft_train.cleaned.jsonl
+```
+
 ## Notes
 
 - DPO (preference) data will be specified separately when we reach the DPO stage.
