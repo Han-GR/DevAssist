@@ -241,3 +241,10 @@ Run DPO training:
 cd backend
 python scripts/train_dpo.py --model Qwen/Qwen2.5-7B-Instruct --pairs data/datasets/dpo_pairs.jsonl --output data/models/qwen2.5-7b-dpo-lora
 ```
+
+Continue DPO from an existing SFT LoRA adapter:
+
+```bash
+cd backend
+python scripts/train_dpo.py --model Qwen/Qwen2.5-7B-Instruct --init-adapter data/models/qwen2.5-7b-lora --pairs data/datasets/dpo_pairs.jsonl --output data/models/qwen2.5-7b-dpo-lora
+```
