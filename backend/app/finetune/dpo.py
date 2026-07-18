@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -9,6 +11,7 @@ class DPOTrainConfig:
     model_name_or_path: str
     dpo_pairs_path: Path
     output_dir: Path
+    init_adapter_path: Path | None = None
     max_seq_length: int = 2048
     per_device_train_batch_size: int = 1
     per_device_eval_batch_size: int = 1
@@ -28,6 +31,7 @@ class DPOTrainConfig:
     trust_remote_code: bool = True
     report_to: tuple[str, ...] = ()
     run_name: str | None = None
+    save_log_history: bool = True
 
 
 def train_dpo(config: DPOTrainConfig) -> Path:
@@ -49,16 +53,19 @@ def train_dpo(config: DPOTrainConfig) -> Path:
         - 训练数据使用 DPO JSONL schema：prompt/chosen/rejected。
         - 该函数会延迟导入 torch/transformers/peft/trl，避免未安装训练依赖时 import 失败。
         - 默认只训练 LoRA adapter，不会覆盖 base model 权重。
+        - 如果提供 init_adapter_path，会在训练前先加载该 adapter 作为初始权重继续训练。
     """
 
     if not config.model_name_or_path.strip():
         raise ValueError("model_name_or_path must not be empty")
     if not config.dpo_pairs_path.exists():
         raise FileNotFoundError(str(config.dpo_pairs_path))
+    if config.init_adapter_path is not None and not config.init_adapter_path.exists():
+        raise FileNotFoundError(str(config.init_adapter_path))
 
     import torch  # type: ignore
     from datasets import load_dataset  # type: ignore
-    from peft import LoraConfig  # type: ignore
+    from peft import LoraConfig, PeftModel  # type: ignore
     from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments  # type: ignore
     from trl import DPOTrainer  # type: ignore
 
@@ -74,19 +81,23 @@ def train_dpo(config: DPOTrainConfig) -> Path:
         trust_remote_code=config.trust_remote_code,
     )
 
+    if config.init_adapter_path is not None:
+        model = PeftModel.from_pretrained(model, str(config.init_adapter_path), is_trainable=True)
+        peft_config = None
+    else:
+        peft_config = LoraConfig(
+            r=int(config.lora_r),
+            lora_alpha=int(config.lora_alpha),
+            lora_dropout=float(config.lora_dropout),
+            target_modules=list(config.target_modules),
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+
     ds = load_dataset("json", data_files={"train": str(config.dpo_pairs_path)}, split="train")
     splitted = ds.train_test_split(test_size=0.02, seed=int(config.seed))
     train_ds = splitted["train"]
     eval_ds = splitted["test"]
-
-    peft_config = LoraConfig(
-        r=int(config.lora_r),
-        lora_alpha=int(config.lora_alpha),
-        lora_dropout=float(config.lora_dropout),
-        target_modules=list(config.target_modules),
-        bias="none",
-        task_type="CAUSAL_LM",
-    )
 
     args = TrainingArguments(
         output_dir=str(config.output_dir),
@@ -124,5 +135,8 @@ def train_dpo(config: DPOTrainConfig) -> Path:
     trainer.model.save_pretrained(str(config.output_dir))
     tokenizer.save_pretrained(str(config.output_dir))
 
-    return config.output_dir
+    if config.save_log_history:
+        log_path = config.output_dir / "train_log_history.json"
+        log_path.write_text(json.dumps(trainer.state.log_history, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+    return config.output_dir
