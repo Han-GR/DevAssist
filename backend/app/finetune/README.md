@@ -95,6 +95,36 @@ Before training, ensure:
 - No empty `output`.
 - No obvious secrets (`sk-`, `AKIA`, `Bearer `, etc.).
 
+## Evaluation Dataset (Fine-tuning)
+
+In addition to SFT train/eval splits, keep a **task-oriented evaluation set** to track improvements over time.
+
+Recommended file:
+
+- `data/datasets/finetune_eval.sample.jsonl` (tracked)
+
+Format (JSONL, one object per line):
+
+```json
+{
+  "id": "eval-0001",
+  "category": "normal",
+  "instruction": "You are a senior software engineer. Answer concisely and accurately.",
+  "input": "FastAPI 里怎么写一个带请求体校验的 POST 接口？给最小可运行例子。",
+  "rubric": {
+    "must_include": ["FastAPI", "Pydantic", "POST", "uvicorn"],
+    "must_not_include": ["sk-", "AKIA"],
+    "notes": "Prefer a minimal runnable code example."
+  }
+}
+```
+
+Notes:
+
+- `category`: `normal` / `edge` / `adversarial`
+- `rubric.must_include`: expected key points (lightweight)
+- This eval set is designed for rule-based checks and later LLM-as-judge evaluation.
+
 ## Notes
 
 - DPO (preference) data will be specified separately when we reach the DPO stage.
