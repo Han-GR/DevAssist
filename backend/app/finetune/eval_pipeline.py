@@ -86,6 +86,7 @@ def run_finetune_eval_pipeline(
     *,
     evalset: Path,
     base_model: str,
+    sft_adapter: str | None,
     dpo_adapter: str | None,
     limit: int | None,
     out_dir: Path,
