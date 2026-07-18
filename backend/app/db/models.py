@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -143,3 +143,23 @@ class FinetuneRun(TimestampMixin, Base):
     lora_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     metrics: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="created")
+
+
+class EvalResult(TimestampMixin, Base):
+    """
+    评测结果表：用于管理端展示与趋势对比。
+
+    设计取向：
+    - 用“长表”结构（model_key + metric_name + scope + score）便于做多模型对比与画图
+    - meta 留给脚本/流水线扩展（evalset、report 路径、commit 等）
+    """
+
+    __tablename__ = "eval_results"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    eval_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    model_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    metric_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    scope: Mapped[str] = mapped_column(String(50), nullable=False, default="all", index=True)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
