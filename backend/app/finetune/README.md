@@ -235,6 +235,33 @@ How to pick a "best" config (pragmatic):
 - Tie-breakers: higher `avg_include_rate`, lower `violation_rate`
 - Always sanity-check a few samples manually (rubric is substring-based)
 
+## Final Training Run (Chosen Best Config)
+
+After you decide the best `(lora_r, learning_rate)` from the sweep, run a single final training + evaluation.
+
+Dry-run (prints the exact training/eval commands and writes a run plan JSON):
+
+```bash
+cd backend
+python scripts/train_sft_final.py --tag final --lora-r 16 --lr 2e-4
+```
+
+Execute (recommended on GPU):
+
+```bash
+cd backend
+python scripts/train_sft_final.py --execute --tag final --lora-r 16 --lr 2e-4
+```
+
+Outputs:
+
+- run plan (JSON):
+  - `data/datasets/runs/sft_final.plan.json`
+- model output directory:
+  - `data/models/{base}-{variant}-{date}-{commit}-final-r{r}-a{alpha}-lr{lr}`
+- evaluation reports:
+  - `data/eval_reports/final/.../finetune_eval_pipeline_report.md`
+
 ## Notes
 
 - DPO (preference) data will be specified separately when we reach the DPO stage.
