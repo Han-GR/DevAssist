@@ -10,7 +10,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             <div className="text-lg font-semibold tracking-tight text-zinc-900">
               DevAssist Admin
             </div>
-            <div className="text-sm text-zinc-600">Trace viewer</div>
+            <div className="text-sm text-zinc-600">Dashboard</div>
           </div>
           <nav className="flex flex-wrap items-center gap-3 text-sm">
             <Link
@@ -18,6 +18,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-zinc-800 hover:bg-zinc-100"
             >
               Chat
+            </Link>
+            <Link
+              href="/admin/evals"
+              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-zinc-800 hover:bg-zinc-100"
+            >
+              Evals
             </Link>
             <Link
               href="/admin/traces"

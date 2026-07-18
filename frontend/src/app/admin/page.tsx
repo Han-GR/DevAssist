@@ -8,12 +8,18 @@ export default function AdminHome() {
           Admin Dashboard
         </h1>
         <p className="text-sm text-zinc-600">
-          Use the traces viewer to inspect Agent Thought/Action/Observation steps.
+          Use Evals to compare metrics and Traces to inspect Agent Thought/Action/Observation steps.
         </p>
-        <div className="pt-2">
+        <div className="flex flex-wrap gap-2 pt-2">
+          <Link
+            href="/admin/evals"
+            className="inline-flex rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+          >
+            Open Evals
+          </Link>
           <Link
             href="/admin/traces"
-            className="inline-flex rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+            className="inline-flex rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-100"
           >
             Open Traces
           </Link>
@@ -22,4 +28,3 @@ export default function AdminHome() {
     </div>
   );
 }
-
