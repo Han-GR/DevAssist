@@ -90,6 +90,7 @@ async def generate_answer(
     collection_name: str | None = None,
     candidate_multiplier: int = 4,
     rerank_min_score: float = 0.0,
+    llm: LLMClient | None = None,
 ) -> RAGAnswer:
     """
     基于知识库生成带引用的回答（retrieve -> rerank -> prompt -> cite）。
@@ -123,11 +124,14 @@ async def generate_answer(
     settings = get_settings()
 
     global llm_client
-    if llm_client is None:
-        try:
-            llm_client = LLMClient.from_settings(settings)
-        except ValueError as exc:
-            raise ConfigurationError(message=str(exc)) from exc
+    used_llm = llm
+    if used_llm is None:
+        if llm_client is None:
+            try:
+                llm_client = LLMClient.from_settings(settings)
+            except ValueError as exc:
+                raise ConfigurationError(message=str(exc)) from exc
+        used_llm = llm_client
 
     candidate_k = max(top_k * candidate_multiplier, top_k)
     candidates = await hybrid_search(query=query, top_k=candidate_k, collection_name=collection_name)
@@ -143,7 +147,7 @@ async def generate_answer(
     )
     user_prompt = f"问题：{query}\n\n资料：\n{context}\n\n请给出回答："
 
-    response = await llm_client.chat(
+    response = await used_llm.chat(
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
