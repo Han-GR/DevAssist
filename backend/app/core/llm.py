@@ -28,7 +28,7 @@ class LLMClient:
     def __init__(
         self,
         *,
-        provider: Literal["deepseek", "openai"],
+        provider: Literal["deepseek", "openai", "vllm"],
         api_key: str,
         model: str,
         base_url: str | None = None,
@@ -56,11 +56,13 @@ class LLMClient:
             raise ValueError("LLM api_key is required")
 
         self._provider = provider
+        self._api_key = api_key
         self._model = model
         self._logger = structlog.get_logger()
 
         # DeepSeek/OpenAI 都走 OpenAI-style 的接口，只需要切 base_url 就行
         resolved_base_url = base_url or self._default_base_url(provider)
+        self._base_url = resolved_base_url
         self._client = AsyncOpenAI(api_key=api_key, base_url=resolved_base_url)
 
     @classmethod
@@ -157,7 +159,7 @@ class LLMClient:
             raise
 
     @staticmethod
-    def _default_base_url(provider: Literal["deepseek", "openai"]) -> str:
+    def _default_base_url(provider: Literal["deepseek", "openai", "vllm"]) -> str:
         """
         不显式传 base_url 时的兜底地址。
 
@@ -175,4 +177,24 @@ class LLMClient:
         """
         if provider == "deepseek":
             return "https://api.deepseek.com/v1"
+        if provider == "vllm":
+            return "http://localhost:8002/v1"
         return "https://api.openai.com/v1"
+
+    def with_model(self, *, model: str) -> "LLMClient":
+        """
+        基于当前客户端创建一个“只覆盖模型名”的新实例。
+
+        Args:
+            model (str): 新的默认模型名（例如 vLLM 的 LoRA adapter id）。
+
+        Returns:
+            LLMClient: 新的客户端实例（复用同一 provider/base_url/api_key，但默认模型不同）。
+        """
+
+        return LLMClient(
+            provider=self._provider,
+            api_key=self._api_key,
+            model=str(model),
+            base_url=self._base_url,
+        )
