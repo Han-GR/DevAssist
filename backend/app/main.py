@@ -10,6 +10,7 @@ FastAPI 应用入口。
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import time
 import structlog
 from uuid import uuid4
 
@@ -71,9 +72,11 @@ async def bind_request_id(request, call_next):
     """
     # 方便串联一次请求在各处的日志；上游如果已经带了 x-request-id，就沿用它
     request_id = request.headers.get("x-request-id") or str(uuid4())
+    user_id = request.headers.get("x-user-id")
+    started_at = time.perf_counter()
 
     structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(request_id=request_id)
+    structlog.contextvars.bind_contextvars(request_id=request_id, user_id=user_id)
 
     if (
         rate_limiter is not None
@@ -82,7 +85,7 @@ async def bind_request_id(request, call_next):
     ):
         from starlette.responses import JSONResponse
 
-        identity = request.headers.get("x-user-id") or getattr(request.client, "host", None) or "unknown"
+        identity = user_id or getattr(request.client, "host", None) or "unknown"
         structlog.contextvars.bind_contextvars(rate_limit_identity=identity)
         decision = await rate_limiter.check(identity=identity)
         if not decision.allowed:
@@ -109,22 +112,37 @@ async def bind_request_id(request, call_next):
             )
             response.headers["x-request-id"] = request_id
             response.headers["retry-after"] = str(decision.window_seconds)
+            duration_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.info(
+                "http_request",
+                method=request.method,
+                path=str(request.url.path),
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+                user_id=user_id,
+            )
             structlog.contextvars.clear_contextvars()
             return response
 
-    response = await call_next(request)
-    response.headers["x-request-id"] = request_id
+    response = None
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["x-request-id"] = request_id
+        return response
+    finally:
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
 
-    # 这里先做最基础的访问日志，后面接入 DB/LLM 调用时也可以继续复用 request_id
-    logger.info(
-        "http_request",
-        method=request.method,
-        path=str(request.url.path),
-        status_code=response.status_code,
-    )
-
-    structlog.contextvars.clear_contextvars()
-    return response
+        logger.info(
+            "http_request",
+            method=request.method,
+            path=str(request.url.path),
+            status_code=status_code,
+            duration_ms=duration_ms,
+            user_id=user_id,
+        )
+        structlog.contextvars.clear_contextvars()
 
 
 @app.get("/health")
