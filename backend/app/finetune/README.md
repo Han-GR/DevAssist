@@ -423,6 +423,55 @@ The pipeline produces:
 - `data/eval_reports/finetune_three_way_report.md`
 - `data/eval_reports/finetune_eval_pipeline_report.md`
 
+## vLLM Serving (GPU)
+
+DevAssist supports serving a base model (and optionally a LoRA adapter) via vLLM's OpenAI-compatible server.
+
+Install vLLM dependencies (keep them separated from runtime and training deps):
+
+```bash
+cd backend
+uv pip install -r requirements-vllm.txt
+```
+
+Serve the base model only:
+
+```bash
+cd backend
+python3 scripts/serve_vllm_lora.py --base-model Qwen/Qwen2.5-7B-Instruct --api-key devassist-local
+```
+
+Serve the base model + one LoRA adapter:
+
+```bash
+cd backend
+python3 scripts/serve_vllm_lora.py \
+  --base-model Qwen/Qwen2.5-7B-Instruct \
+  --enable-lora \
+  --lora-name devassist-lora \
+  --lora-path data/models/<your-lora-adapter-dir> \
+  --api-key devassist-local
+```
+
+Smoke test (base model):
+
+```bash
+cd backend
+python3 scripts/vllm_smoke_test.py --base-url http://localhost:8000/v1 --api-key devassist-local --model Qwen/Qwen2.5-7B-Instruct
+```
+
+Smoke test (LoRA adapter):
+
+```bash
+cd backend
+python3 scripts/vllm_smoke_test.py --base-url http://localhost:8000/v1 --api-key devassist-local --model devassist-lora
+```
+
+Notes:
+
+- The LoRA adapter is exposed as a standalone `model` id (e.g. `devassist-lora`) and can be selected via the OpenAI `model` parameter.
+- This is expected to run on Linux + NVIDIA GPU. macOS/CPU is only for reading code and dry-run scripts.
+
 ## Results Recording Template
 
 To compare multiple runs reliably, keep an explicit record per run (append-only JSONL is recommended).
