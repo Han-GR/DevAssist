@@ -472,6 +472,44 @@ Notes:
 - The LoRA adapter is exposed as a standalone `model` id (e.g. `devassist-lora`) and can be selected via the OpenAI `model` parameter.
 - This is expected to run on Linux + NVIDIA GPU. macOS/CPU is only for reading code and dry-run scripts.
 
+## vLLM Benchmark
+
+Benchmark the OpenAI-compatible `/v1/chat/completions` endpoint with concurrency and basic latency percentiles.
+
+Example (base model):
+
+```bash
+cd backend
+python3 scripts/bench_vllm.py \
+  --base-url http://localhost:8000/v1 \
+  --api-key devassist-local \
+  --model Qwen/Qwen2.5-7B-Instruct \
+  --requests 50 \
+  --concurrency 5 \
+  --output-json data/eval_reports/vllm_bench.base.json \
+  --output-md data/eval_reports/vllm_bench.base.md
+```
+
+Example (LoRA adapter):
+
+```bash
+cd backend
+python3 scripts/bench_vllm.py \
+  --base-url http://localhost:8000/v1 \
+  --api-key devassist-local \
+  --model devassist-lora \
+  --requests 50 \
+  --concurrency 5 \
+  --output-json data/eval_reports/vllm_bench.lora.json \
+  --output-md data/eval_reports/vllm_bench.lora.md
+```
+
+The JSON output includes:
+
+- latency_ms: avg/stdev/p50/p95/p99/min/max
+- throughput: req_per_s / completion_tokens_per_s / total_tokens_per_s
+- tokens: summed prompt/completion/total tokens (from OpenAI usage fields)
+
 ## Results Recording Template
 
 To compare multiple runs reliably, keep an explicit record per run (append-only JSONL is recommended).
