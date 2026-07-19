@@ -4,7 +4,6 @@ import argparse
 from pathlib import Path
 import shlex
 import subprocess
-import sys
 
 
 def _normalize_base_url_for_display(host: str, port: int) -> str:
@@ -31,6 +30,17 @@ def build_vllm_serve_command(
     dtype: str,
     tensor_parallel_size: int,
     gpu_memory_utilization: float,
+    max_model_len: int | None,
+    max_num_seqs: int | None,
+    max_num_batched_tokens: int | None,
+    kv_cache_dtype: str | None,
+    swap_space: float | None,
+    cpu_offload_gb: float | None,
+    quantization: str | None,
+    enable_chunked_prefill: bool,
+    enforce_eager: bool,
+    disable_log_stats: bool,
+    disable_log_requests: bool,
     trust_remote_code: bool,
     enable_lora: bool,
     lora_name: str | None,
@@ -49,6 +59,17 @@ def build_vllm_serve_command(
         dtype: vLLM dtype 参数（例如 auto/float16/bfloat16）。
         tensor_parallel_size: 张量并行大小（多卡时设置 > 1）。
         gpu_memory_utilization: GPU 显存使用率（0~1）。
+        max_model_len: 最大上下文长度（控制 KV cache 上限，影响显存占用）。
+        max_num_seqs: 同时处理的并发序列上限（影响吞吐与显存）。
+        max_num_batched_tokens: 单步批处理 token 上限（影响吞吐与显存）。
+        kv_cache_dtype: KV cache dtype（例如 auto/fp8）。
+        swap_space: swap space（GiB，显存不足时可用于 KV cache 交换）。
+        cpu_offload_gb: CPU offload（GiB，显存不足时把部分权重/缓存挪到 CPU）。
+        quantization: 量化方法（例如 awq / gptq / fp8），留空则不启用。
+        enable_chunked_prefill: 是否开启 chunked prefill（长 prompt 时更稳）。
+        enforce_eager: 是否强制 eager（用于排查/兼容性）。
+        disable_log_stats: 是否关闭 vLLM stats 日志（减少额外开销）。
+        disable_log_requests: 是否关闭请求日志（减少额外开销）。
         trust_remote_code: 是否开启 trust_remote_code（部分模型需要）。
         enable_lora: 是否启用 LoRA。
         lora_name: LoRA adapter 在 vLLM 模型列表里的名字。
@@ -80,6 +101,29 @@ def build_vllm_serve_command(
         "--gpu-memory-utilization",
         str(float(gpu_memory_utilization)),
     ]
+
+    if max_model_len is not None:
+        cmd.extend(["--max-model-len", str(int(max_model_len))])
+    if max_num_seqs is not None:
+        cmd.extend(["--max-num-seqs", str(int(max_num_seqs))])
+    if max_num_batched_tokens is not None:
+        cmd.extend(["--max-num-batched-tokens", str(int(max_num_batched_tokens))])
+    if kv_cache_dtype is not None:
+        cmd.extend(["--kv-cache-dtype", str(kv_cache_dtype)])
+    if swap_space is not None:
+        cmd.extend(["--swap-space", str(float(swap_space))])
+    if cpu_offload_gb is not None:
+        cmd.extend(["--cpu-offload-gb", str(float(cpu_offload_gb))])
+    if quantization is not None:
+        cmd.extend(["--quantization", str(quantization)])
+    if bool(enable_chunked_prefill):
+        cmd.append("--enable-chunked-prefill")
+    if bool(enforce_eager):
+        cmd.append("--enforce-eager")
+    if bool(disable_log_stats):
+        cmd.append("--disable-log-stats")
+    if bool(disable_log_requests):
+        cmd.append("--disable-log-requests")
 
     if bool(trust_remote_code):
         cmd.append("--trust-remote-code")
@@ -126,6 +170,17 @@ def main() -> int:
     parser.add_argument("--dtype", type=str, default="auto")
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.90)
+    parser.add_argument("--max-model-len", type=int, default=None)
+    parser.add_argument("--max-num-seqs", type=int, default=None)
+    parser.add_argument("--max-num-batched-tokens", type=int, default=None)
+    parser.add_argument("--kv-cache-dtype", type=str, default=None)
+    parser.add_argument("--swap-space", type=float, default=None)
+    parser.add_argument("--cpu-offload-gb", type=float, default=None)
+    parser.add_argument("--quantization", type=str, default=None)
+    parser.add_argument("--enable-chunked-prefill", action="store_true")
+    parser.add_argument("--enforce-eager", action="store_true")
+    parser.add_argument("--disable-log-stats", action="store_true")
+    parser.add_argument("--disable-log-requests", action="store_true")
     parser.add_argument("--trust-remote-code", action="store_true")
 
     parser.add_argument("--enable-lora", action="store_true")
@@ -149,6 +204,17 @@ def main() -> int:
         dtype=str(args.dtype),
         tensor_parallel_size=int(args.tensor_parallel_size),
         gpu_memory_utilization=float(args.gpu_memory_utilization),
+        max_model_len=int(args.max_model_len) if args.max_model_len is not None else None,
+        max_num_seqs=int(args.max_num_seqs) if args.max_num_seqs is not None else None,
+        max_num_batched_tokens=int(args.max_num_batched_tokens) if args.max_num_batched_tokens is not None else None,
+        kv_cache_dtype=str(args.kv_cache_dtype) if args.kv_cache_dtype is not None else None,
+        swap_space=float(args.swap_space) if args.swap_space is not None else None,
+        cpu_offload_gb=float(args.cpu_offload_gb) if args.cpu_offload_gb is not None else None,
+        quantization=str(args.quantization) if args.quantization is not None else None,
+        enable_chunked_prefill=bool(args.enable_chunked_prefill),
+        enforce_eager=bool(args.enforce_eager),
+        disable_log_stats=bool(args.disable_log_stats),
+        disable_log_requests=bool(args.disable_log_requests),
         trust_remote_code=bool(args.trust_remote_code),
         enable_lora=bool(args.enable_lora),
         lora_name=str(args.lora_name) if args.lora_name else None,
@@ -168,4 +234,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
