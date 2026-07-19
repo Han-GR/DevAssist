@@ -11,3 +11,4 @@ alembic==1.13.2
 chromadb==0.5.5
 python-multipart==0.0.9
 docker==7.1.0
+redis==5.0.8
