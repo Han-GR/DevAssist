@@ -19,6 +19,7 @@ class SmokeConfig:
     timeout_s: float
     startup_timeout_s: float
     retry_interval_s: float
+    trust_env: bool
 
 
 def _normalize_base_url(value: str) -> str:
@@ -105,7 +106,7 @@ async def run_smoke(*, cfg: SmokeConfig) -> None:
         Exception: 任一环节失败则抛出。
     """
     headers = {"x-user-id": "smoke-user"}
-    async with httpx.AsyncClient(timeout=cfg.timeout_s, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=cfg.timeout_s, headers=headers, trust_env=cfg.trust_env) as client:
         await _wait_health(client=client, cfg=cfg)
 
         chat_resp = await _post_json(
@@ -174,12 +175,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--base-url",
-        default=os.environ.get("DEVASSIST_BASE_URL", "http://localhost"),
-        help="DevAssist base url (default: http://localhost)",
+        default=os.environ.get("DEVASSIST_BASE_URL", "http://127.0.0.1"),
+        help="DevAssist base url (default: http://127.0.0.1)",
     )
     parser.add_argument("--timeout-s", type=float, default=30.0)
     parser.add_argument("--startup-timeout-s", type=float, default=120.0)
     parser.add_argument("--retry-interval-s", type=float, default=2.0)
+    parser.add_argument(
+        "--trust-env",
+        action="store_true",
+        help="Whether to trust environment variables (proxy/no_proxy, etc). Default: false.",
+    )
     return parser
 
 
@@ -196,6 +202,7 @@ def main() -> int:
         timeout_s=float(args.timeout_s),
         startup_timeout_s=float(args.startup_timeout_s),
         retry_interval_s=float(args.retry_interval_s),
+        trust_env=bool(args.trust_env),
     )
 
     try:
@@ -208,4 +215,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
