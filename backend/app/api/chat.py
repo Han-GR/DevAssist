@@ -40,6 +40,7 @@ settings = get_settings()
 router = APIRouter()
 
 llm_client: LLMClient | None = None
+llm_client_local: LLMClient | None = None
 
 
 class ChatMessage(BaseModel):
@@ -67,6 +68,8 @@ class ChatRequest(BaseModel):
     use_rag: bool | None = None
     use_agent: bool | None = None
     collection_name: str | None = None
+    model_source: Literal["remote", "local"] = "remote"
+    model: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -435,6 +438,7 @@ async def chat(
         - stream=true：先写入 user 消息，流式结束后再写入完整 assistant 消息（避免半截内容入库）
     """
     global llm_client
+    global llm_client_local
 
     if llm_client is None:
         try:
@@ -442,7 +446,20 @@ async def chat(
         except ValueError as exc:
             raise ConfigurationError(message=str(exc)) from exc
 
-    rag_generator.llm_client = llm_client
+    if llm_client_local is None:
+        try:
+            llm_client_local = LLMClient(
+                provider="vllm",
+                api_key=settings.vllm_api_key,
+                model=settings.vllm_model,
+                base_url=settings.vllm_base_url or None,
+            )
+        except ValueError as exc:
+            raise ConfigurationError(message=str(exc)) from exc
+
+    selected_llm = llm_client_local if payload.model_source == "local" else llm_client
+    if payload.model is not None and payload.model.strip():
+        selected_llm = selected_llm.with_model(model=payload.model.strip())
 
     conversation_id = payload.conversation_id or uuid4()
 
@@ -465,7 +482,7 @@ async def chat(
                 query=payload.message,
             )
             registry = _build_agent_registry()
-            agent = ReActAgent(llm=llm_client, tools=registry)
+            agent = ReActAgent(llm=selected_llm, tools=registry)
 
             step_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
 
@@ -490,7 +507,7 @@ async def chat(
                     conversation_id=conversation_id,
                     user=payload.message,
                     assistant=answer,
-                    llm=llm_client,
+                    llm=selected_llm,
                 )
                 return answer
 
@@ -542,7 +559,7 @@ async def chat(
             return StreamingResponse(_persist_after_agent_stream(), media_type="text/event-stream")
 
         reply_text = await _run_agent_for_chat(
-            llm=llm_client,
+            llm=selected_llm,
             message=payload.message,
             conversation_id=conversation_id,
         )
@@ -556,6 +573,7 @@ async def chat(
                 query=payload.message,
                 top_k=5,
                 collection_name=payload.collection_name,
+                llm=selected_llm,
             )
             reply_text = _format_rag_reply(answer=rag_answer)
             parts = _split_to_stream_parts(text=reply_text)
@@ -585,6 +603,7 @@ async def chat(
             query=payload.message,
             top_k=5,
             collection_name=payload.collection_name,
+            llm=selected_llm,
         )
         reply_text = _format_rag_reply(answer=rag_answer)
         await persist_turn_to_db(conversation_id, payload.message, reply_text)
@@ -592,9 +611,10 @@ async def chat(
 
     if stream:
         await persist_user_message_to_db(conversation_id, payload.message)
-        openai_stream = await llm_client.chat(
+        openai_stream = await selected_llm.chat(
             messages=messages,
             temperature=0.0,
+            model=payload.model.strip() if payload.model else None,
             stream=True,
         )
         assistant_parts: list[str] = []
@@ -657,9 +677,10 @@ async def chat(
 
         return StreamingResponse(_persist_after_stream(), media_type="text/event-stream")
 
-    response = await llm_client.chat(
+    response = await selected_llm.chat(
         messages=messages,
         temperature=0.0,
+        model=payload.model.strip() if payload.model else None,
         stream=False,
     )
     content = response.choices[0].message.content if response.choices else ""
