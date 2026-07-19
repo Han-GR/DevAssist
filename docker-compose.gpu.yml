@@ -1,0 +1,68 @@
+services:
+  vllm:
+    image: vllm/vllm-openai:v0.6.6.post1
+    ports:
+      - "8002:8000"
+    volumes:
+      - ./data/models:/data/models
+      - ./data/hf_cache:/root/.cache/huggingface
+    ipc: host
+    shm_size: "8gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command:
+      - bash
+      - -lc
+      - >
+        ARGS="--model ${VLLM_BASE_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+        --host 0.0.0.0
+        --port 8000
+        --dtype ${VLLM_DTYPE:-auto}
+        --api-key ${VLLM_API_KEY:-devassist-local}
+        --tensor-parallel-size ${VLLM_TENSOR_PARALLEL_SIZE:-1}
+        --gpu-memory-utilization ${VLLM_GPU_MEMORY_UTILIZATION:-0.90}";
+        if [ "${VLLM_ENABLE_CHUNKED_PREFILL:-0}" = "1" ]; then
+          ARGS="$ARGS --enable-chunked-prefill";
+        fi;
+        if [ -n "${VLLM_MAX_MODEL_LEN:-}" ]; then
+          ARGS="$ARGS --max-model-len ${VLLM_MAX_MODEL_LEN}";
+        fi;
+        if [ -n "${VLLM_MAX_NUM_SEQS:-}" ]; then
+          ARGS="$ARGS --max-num-seqs ${VLLM_MAX_NUM_SEQS}";
+        fi;
+        if [ -n "${VLLM_MAX_NUM_BATCHED_TOKENS:-}" ]; then
+          ARGS="$ARGS --max-num-batched-tokens ${VLLM_MAX_NUM_BATCHED_TOKENS}";
+        fi;
+        if [ -n "${VLLM_KV_CACHE_DTYPE:-}" ]; then
+          ARGS="$ARGS --kv-cache-dtype ${VLLM_KV_CACHE_DTYPE}";
+        fi;
+        if [ -n "${VLLM_QUANTIZATION:-}" ]; then
+          ARGS="$ARGS --quantization ${VLLM_QUANTIZATION}";
+        fi;
+        if [ -n "${VLLM_SWAP_SPACE:-}" ]; then
+          ARGS="$ARGS --swap-space ${VLLM_SWAP_SPACE}";
+        fi;
+        if [ -n "${VLLM_CPU_OFFLOAD_GB:-}" ]; then
+          ARGS="$ARGS --cpu-offload-gb ${VLLM_CPU_OFFLOAD_GB}";
+        fi;
+        if [ "${VLLM_DISABLE_LOG_STATS:-0}" = "1" ]; then
+          ARGS="$ARGS --disable-log-stats";
+        fi;
+        if [ "${VLLM_DISABLE_LOG_REQUESTS:-0}" = "1" ]; then
+          ARGS="$ARGS --disable-log-requests";
+        fi;
+        if [ "${VLLM_ENFORCE_EAGER:-0}" = "1" ]; then
+          ARGS="$ARGS --enforce-eager";
+        fi;
+        if [ "${VLLM_ENABLE_LORA:-0}" = "1" ]; then
+          ARGS="$ARGS --enable-lora
+          --lora-modules ${VLLM_LORA_NAME:-devassist-lora}=${VLLM_LORA_PATH:-/data/models/qwen2.5-7b-lora}
+          --max-loras ${VLLM_MAX_LORAS:-1}
+          --max-lora-rank ${VLLM_MAX_LORA_RANK:-32}";
+        fi;
+        exec vllm serve ${ARGS}
