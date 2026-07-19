@@ -510,6 +510,36 @@ The JSON output includes:
 - throughput: req_per_s / completion_tokens_per_s / total_tokens_per_s
 - tokens: summed prompt/completion/total tokens (from OpenAI usage fields)
 
+## vLLM Tuning Knobs
+
+When you start serving real traffic, the default settings are rarely optimal. In practice, you will iterate on a few knobs and re-run the benchmark:
+
+- `--gpu-memory-utilization`: push it up until you hit OOM, then back off a bit
+- `--max-num-seqs`: higher increases concurrency/throughput, but consumes more KV cache memory
+- `--max-num-batched-tokens`: higher can improve throughput, but increases peak memory pressure
+- `--max-model-len`: a hard cap for context length (lower can save memory)
+- `--enable-chunked-prefill`: helps when prompts are long (more stable memory behavior)
+- `--swap-space` / `--cpu-offload-gb`: last resort when you are close to OOM (slower but can keep the service alive)
+
+The serving script exposes these flags directly:
+
+- `scripts/serve_vllm_lora.py`
+
+Generate a tuning plan (commands + manifest) to try a small grid:
+
+```bash
+cd backend
+python3 scripts/plan_vllm_tuning.py \
+  --max-num-seqs 64,128,256 \
+  --max-num-batched-tokens 8192,16384 \
+  --gpu-memory-utilization 0.85,0.9,0.95
+```
+
+This writes:
+
+- `data/eval_reports/vllm_tuning/<YYYYMMDD>-<commit>/manifest.jsonl`
+- `data/eval_reports/vllm_tuning/<YYYYMMDD>-<commit>/plan.md` (a fill-in table for results)
+
 ## Results Recording Template
 
 To compare multiple runs reliably, keep an explicit record per run (append-only JSONL is recommended).
