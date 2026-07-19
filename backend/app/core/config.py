@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     sandbox_memory_limit: str = "256m"
     # 允许代码访问的文件路径前缀列表（逗号分隔）；空字符串表示不限制
     sandbox_allowed_paths: str = ""
+    rate_limit_enabled: bool = True
+    rate_limit_redis_url: str = ""
+    rate_limit_requests_per_minute: int = 30
+    rate_limit_window_seconds: int = 60
+    rate_limit_key_prefix: str = "devassist:rate_limit"
+    rate_limit_fail_open: bool = True
 
     model_config = SettingsConfigDict(
         # 开发阶段优先图省事：本地可以放一个 .env；线上则直接走环境变量
