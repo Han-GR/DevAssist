@@ -37,11 +37,18 @@ class _FakeResponse:
 class _FakeLLMClient:
     def __init__(self) -> None:
         self.last_messages: list[dict[str, Any]] = []
+        self.last_model: str | None = None
 
     async def chat(
-        self, *, messages: list[dict[str, Any]], temperature: float, stream: bool = False
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        model: str | None = None,
+        stream: bool = False,
     ) -> Any:
         self.last_messages = messages
+        self.last_model = model
 
         if stream:
             return _FakeStream.from_messages(messages)
@@ -217,12 +224,27 @@ def test_chat_passes_history_to_llm() -> None:
     assert body.get("conversation_id")
     UUID(body["conversation_id"])
     assert body["reply"] == "echo: how are you"
-
     assert fake.last_messages == [
         {"role": "user", "content": "hi"},
         {"role": "assistant", "content": "hello"},
         {"role": "user", "content": "how are you"},
     ]
+
+
+def test_chat_can_route_to_local_llm() -> None:
+    client = TestClient(main_module.app)
+    remote = _FakeLLMClient()
+    local = _FakeLLMClient()
+    chat_module.llm_client = remote
+    chat_module.llm_client_local = local
+
+    resp = client.post("/chat", json={"message": "hello", "model_source": "local"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body.get("conversation_id")
+    assert body["reply"] == "echo: hello"
+    assert local.last_messages and local.last_messages[-1]["content"] == "hello"
+    assert remote.last_messages == []
 
 
 def test_chat_conversation_id_prefers_db_history() -> None:
