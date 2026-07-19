@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from app.core.config import get_settings, setup_logging
 from app.core.errors import register_error_handlers
+from app.core.rate_limit import RateLimiter
 from app.api.agent import router as agent_router
 from app.api.admin_evals import router as admin_evals_router
 from app.api.admin_traces import router as admin_traces_router
@@ -27,6 +28,7 @@ settings = get_settings()
 setup_logging(settings=settings)
 
 logger = structlog.get_logger()
+rate_limiter = RateLimiter.from_settings(settings=settings)
 
 app = FastAPI(title=settings.service_name)
 app.add_middleware(
@@ -72,6 +74,43 @@ async def bind_request_id(request, call_next):
 
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(request_id=request_id)
+
+    if (
+        rate_limiter is not None
+        and request.method != "OPTIONS"
+        and str(request.url.path) not in {"/health", "/docs", "/openapi.json"}
+    ):
+        from starlette.responses import JSONResponse
+
+        identity = request.headers.get("x-user-id") or getattr(request.client, "host", None) or "unknown"
+        structlog.contextvars.bind_contextvars(rate_limit_identity=identity)
+        decision = await rate_limiter.check(identity=identity)
+        if not decision.allowed:
+            message = "Too many requests. Please try again later."
+            logger.info(
+                "app_error",
+                code="rate_limited",
+                status_code=429,
+                message=message,
+            )
+            response = JSONResponse(
+                status_code=429,
+                content={
+                    "error": {
+                        "code": "rate_limited",
+                        "message": message,
+                        "details": {
+                            "limit": decision.limit,
+                            "window_seconds": decision.window_seconds,
+                        },
+                    },
+                    "request_id": request_id,
+                },
+            )
+            response.headers["x-request-id"] = request_id
+            response.headers["retry-after"] = str(decision.window_seconds)
+            structlog.contextvars.clear_contextvars()
+            return response
 
     response = await call_next(request)
     response.headers["x-request-id"] = request_id
